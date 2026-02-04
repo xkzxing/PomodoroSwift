@@ -1,40 +1,40 @@
 # PomodoroSwift
 
-A beautiful, native macOS Pomodoro timer application built with SwiftUI. It features a modern, aesthetic interface with glassmorphism effects and high customizability.
+一款基于 SwiftUI 构建的如原生般优美 macOS 番茄钟应用。它拥有现代化的美学界面，具备玻璃拟态效果和高度的自定义能力。
 
-## Features
+## 功能特性
 
-- **Timer Functionality**: 
-  - Standard Pomodoro timer with customizable duration.
-  - Quick restart actions (Same time, +5 min, +10 min) via notifications.
-  - Visual circular timer display.
+- **计时功能**:
+  - 标准的番茄钟计时器，支持自定义时长。
+  - 通过通知快速重启（原时长、+5分钟、+10分钟）。
+  - 可视化的环形计时显示。
 
-- **Aesthetic Design**:
-  - **Glassmorphism**: Advanced "Liquid Glass" effect with customizable transparency, tint, and shimmer.
-  - **Interactive Elements**: Buttons and panels react to hover and click states with smooth animations.
-  - **Sidebar**: A sleek, collapsible sidebar for settings, featuring a frosted glass look.
+- **美学设计**:
+  - **玻璃拟态**: 高级的“液态玻璃”效果，支持自定义透明度、色调和光泽。
+  - **交互元素**: 按钮和面板对悬停及点击状态有流畅的动画响应。
+  - **侧边栏**: 光滑的可折叠侧边栏用于设置，同样具备磨砂玻璃外观。
 
-- **Customization**:
-  - **Background**: Set your own custom background image.
-  - **Typography**: Choose any installed system font for the timer display.
-  - **Appearance**: Adjust glass tint color and opacity to match your wallpaper.
+- **个性化定制**:
+  - **背景**: 设置你自己的自定义背景图片。
+  - **字体**: 选择任何系统已安装的字体用于计时显示。
+  - **外观**: 调整玻璃色调颜色和不透明度以匹配你的壁纸。
 
-## Requirements
+## 系统要求
 
-- macOS 12.0+ (Estimated based on SwiftUI usage)
-- Xcode 14.0+ for development
+- macOS 12.0+ (基于 SwiftUI 版本估算)
+- Xcode 14.0+ (用于开发)
 
-## Project Structure
+## 项目结构
 
-- **Models**: Core logic for the Timer (`PomodoroTimer.swift`) and App Settings (`Settings.swift`).
-- **Views**: SwiftUI views including the main `ContentView`, `TimerView`, and custom UI components like `GlassButton`.
-- **Extensions**: Helper utilities for colors and other types.
+- **Models**: 核心逻辑，包括计时器 (`PomodoroTimer.swift`) 和应用设置 (`Settings.swift`)。
+- **Views**: SwiftUI 视图，包括主界面 `ContentView`，计时视图 `TimerView`，以及自定义 UI 组件如 `GlassButton`。
+- **Extensions**: 颜色和其他类型的辅助工具类。
 
-## Usage
+## 使用说明
 
-1. **Start Timer**: Click the "Start" button to begin the countdown.
-2. **Settings**: Open the sidebar (icon in top-left) to access personalization options.
-   - Change the font face.
-   - Adjust the glass effect (clear vs. regular, tint color).
-   - Upload a custom background image.
-3. **Notifications**: The app will notify you when the timer completes, allowing you to restart or extend the session directly from the notification.
+1. **开始计时**: 点击“开始”按钮开始倒计时。
+2. **设置**: 打开侧边栏（左上角图标）访问个性化选项。
+    - 更改字体样式。
+    - 调整玻璃效果（透明度、色调颜色）。
+    - 上传自定义背景图片。
+3. **通知**: 计时结束时应用会发送通知，允许你直接从通知中重新开始或延长专注时间。
