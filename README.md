@@ -20,11 +20,6 @@
   - **外观**: 调整玻璃色调颜色和不透明度以匹配你的壁纸。
 <img width="3024" height="1898" alt="4b886d1ef1b73a4a0b13356b63aa6e83" src="https://github.com/user-attachments/assets/4cc249b8-f960-4a76-b495-7a1f11448a52" />
 
-## 系统要求
-
-- macOS 12.0+ (基于 SwiftUI 版本估算)
-- Xcode 14.0+ (用于开发)
-
 ## 项目结构
 
 - **Models**: 核心逻辑，包括计时器 (`PomodoroTimer.swift`) 和应用设置 (`Settings.swift`)。
