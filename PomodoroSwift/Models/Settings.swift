@@ -34,6 +34,18 @@ class Settings: ObservableObject {
         }
     }
     
+    @Published var breakTime: Int {
+        didSet {
+            UserDefaults.standard.set(breakTime, forKey: "breakTime")
+        }
+    }
+    
+    @Published var longBreakTime: Int {
+        didSet {
+            UserDefaults.standard.set(longBreakTime, forKey: "longBreakTime")
+        }
+    }
+    
     // Glass Effect Settings
     @Published var glassVariant: String {
         didSet {
@@ -66,10 +78,10 @@ class Settings: ObservableObject {
         // Load saved font or use default
         if let data = UserDefaults.standard.data(forKey: "fontDescriptor"),
            let descriptor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSFontDescriptor.self, from: data),
-           let font = NSFont(descriptor: descriptor, size: 72) {
+           let font = NSFont(descriptor: descriptor, size: 0) {
             self.selectedNSFont = font
         } else {
-            // Default font: Helvetica Neue Regular at 72pt
+            // Default font: Helvetica Neue Regular
             self.selectedNSFont = NSFont(name: "Helvetica Neue", size: 72) ?? NSFont.systemFont(ofSize: 72)
         }
         
@@ -77,6 +89,14 @@ class Settings: ObservableObject {
         self.selectedTime = UserDefaults.standard.integer(forKey: "selectedTime") != 0 
             ? UserDefaults.standard.integer(forKey: "selectedTime") 
             : 25
+        
+        self.breakTime = UserDefaults.standard.integer(forKey: "breakTime") != 0
+            ? UserDefaults.standard.integer(forKey: "breakTime")
+            : 5
+        
+        self.longBreakTime = UserDefaults.standard.integer(forKey: "longBreakTime") != 0
+            ? UserDefaults.standard.integer(forKey: "longBreakTime")
+            : 15
         
         // Load glass effect settings
         self.glassVariant = UserDefaults.standard.string(forKey: "glassVariant") ?? "regular"
@@ -89,36 +109,6 @@ class Settings: ObservableObject {
             ? UserDefaults.standard.double(forKey: "glassTintOpacity") 
             : 0.15
         self.glassInteractive = UserDefaults.standard.bool(forKey: "glassInteractive")
-    }
-    
-    private static func fontWeightToInt(_ weight: Font.Weight) -> Int {
-        switch weight {
-        case .ultraLight: return 100
-        case .thin: return 200
-        case .light: return 300
-        case .regular: return 400
-        case .medium: return 500
-        case .semibold: return 600
-        case .bold: return 700
-        case .heavy: return 800
-        case .black: return 900
-        default: return 400
-        }
-    }
-    
-    private static func intToFontWeight(_ int: Int) -> Font.Weight {
-        switch int {
-        case 100: return .ultraLight
-        case 200: return .thin
-        case 300: return .light
-        case 400: return .regular
-        case 500: return .medium
-        case 600: return .semibold
-        case 700: return .bold
-        case 800: return .heavy
-        case 900: return .black
-        default: return .regular
-        }
     }
     
     static let systemFonts = [

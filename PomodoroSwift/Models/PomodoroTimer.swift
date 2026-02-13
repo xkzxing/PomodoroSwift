@@ -7,25 +7,58 @@ import Foundation
 import UserNotifications
 import Combine  // 添加这个 import
 
+enum TimerMode {
+    case work
+    case shortBreak
+    case longBreak
+    
+    var displayName: String {
+        switch self {
+        case .work: return "Focus"
+        case .shortBreak: return "Short Break"
+        case .longBreak: return "Long Break"
+        }
+    }
+}
+
 class PomodoroTimer: ObservableObject {
     @Published var timeRemaining: Int
     @Published var isRunning = false
     @Published var isCompleted = false
+    @Published var currentMode: TimerMode = .work
+    @Published var sessionCount: Int = 0
     
     private var timer: Timer?
-    private let totalTime: Int
+    private var totalTime: Int
     private var delayedRestartTimer: Timer?
+    private var workTime: Int
+    private var breakTime: Int
+    private var longBreakTime: Int
+    
+    private let sessionsBeforeLongBreak = 4
     
     static let notificationCategoryID = "POMODORO_COMPLETE"
     static let actionRestartNow = "RESTART_NOW"
     static let actionRestart5Min = "RESTART_5MIN"
     static let actionRestart10Min = "RESTART_10MIN"
     
-    init(minutes: Int) {
-        self.totalTime = minutes * 60
-        self.timeRemaining = minutes * 60
+    init(workMinutes: Int, breakMinutes: Int = 5, longBreakMinutes: Int = 15) {
+        self.workTime = workMinutes * 60
+        self.breakTime = breakMinutes * 60
+        self.longBreakTime = longBreakMinutes * 60
+        self.totalTime = workMinutes * 60
+        self.timeRemaining = workMinutes * 60
         setupNotificationCategory()
         setupNotificationObserver()
+    }
+    
+    deinit {
+        // Clean up timers
+        timer?.invalidate()
+        delayedRestartTimer?.invalidate()
+        
+        // Remove notification observer
+        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("RestartPomodoroTimer"), object: nil)
     }
     
     private func setupNotificationObserver() {
@@ -100,13 +133,31 @@ class PomodoroTimer: ObservableObject {
     private func complete() {
         pause()
         isCompleted = true
+        
+        // Increment session count when completing work
+        if currentMode == .work {
+            sessionCount += 1
+        }
+        
         sendNotification()
     }
     
     private func sendNotification() {
         let content = UNMutableNotificationContent()
-        content.title = "Pomodoro Complete!"
-        content.body = "Time to take a break."
+        
+        switch currentMode {
+        case .work:
+            content.title = "Work Session Complete!"
+            if sessionCount % sessionsBeforeLongBreak == 0 {
+                content.body = "Great work! Time for a long break."
+            } else {
+                content.body = "Great work! Time for a short break."
+            }
+        case .shortBreak, .longBreak:
+            content.title = "Break Complete!"
+            content.body = "Ready to focus again?"
+        }
+        
         content.sound = .default
         content.categoryIdentifier = Self.notificationCategoryID
         
@@ -136,10 +187,42 @@ class PomodoroTimer: ObservableObject {
         }
     }
     
-    func updateTime(minutes: Int) {
-        let newTotal = minutes * 60
-        self.timeRemaining = newTotal
-        // Don't update if timer is running
+    func updateTime(workMinutes: Int, breakMinutes: Int? = nil, longBreakMinutes: Int? = nil) {
+        self.workTime = workMinutes * 60
+        if let breakMinutes = breakMinutes {
+            self.breakTime = breakMinutes * 60
+        }
+        if let longBreakMinutes = longBreakMinutes {
+            self.longBreakTime = longBreakMinutes * 60
+        }
+        
+        // Update current time if not running and in work mode
+        if !isRunning && currentMode == .work {
+            self.totalTime = workTime
+            self.timeRemaining = workTime
+        }
+    }
+    
+    func startNextMode() {
+        // Determine next mode
+        switch currentMode {
+        case .work:
+            if sessionCount % sessionsBeforeLongBreak == 0 {
+                currentMode = .longBreak
+                totalTime = longBreakTime
+            } else {
+                currentMode = .shortBreak
+                totalTime = breakTime
+            }
+        case .shortBreak, .longBreak:
+            currentMode = .work
+            totalTime = workTime
+        }
+        
+        // Reset and start
+        timeRemaining = totalTime
+        isCompleted = false
+        start()
     }
     
     var formattedTime: String {

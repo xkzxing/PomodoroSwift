@@ -11,6 +11,7 @@ struct TimeSelector: View {
     @State private var dragOffset: CGFloat = 0
     @State private var velocity: CGFloat = 0
     @State private var viewWidth: CGFloat = 800
+    @State private var isDragging: Bool = false
     
     let times = Array(stride(from: 5, through: 120, by: 5))
     let itemWidth: CGFloat = 70
@@ -32,33 +33,39 @@ struct TimeSelector: View {
                         TimeOptionView(
                             time: time,
                             isSelected: selectedTime == time
-                        ) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                selectedTime = time
-                            }
-                        }
+                        )
                         .frame(width: itemWidth)
                     }
                 }
                 .offset(x: currentOffset)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            isDragging = true
                             dragOffset = value.translation.width
-                            // Rudimentary velocity tracking
                             velocity = value.velocity.width
                         }
-                        .onEnded { value in
-                            // Add more "throw" to the momentum (0.2 -> 0.3)
-                            let predictedEndOffset = value.translation.width + (value.velocity.width * 0.3)
-                            finalizeSelection(with: predictedEndOffset)
-                        }
-                )
-            }
+                    }
+                    .onEnded { value in
+                        isDragging = false
+                        let predictedEndOffset = value.translation.width + (value.velocity.width * 0.3)
+                        finalizeSelection(with: predictedEndOffset)
+                    }
+            )
             .onScroll(perform: { deltaX in
-                // Multiply scroll speed for better feel on trackpad
                 let speedMultiplier: CGFloat = 2.0
-                dragOffset += deltaX * speedMultiplier
+                let newOffset = dragOffset + deltaX * speedMultiplier
+                
+                // Clamp: don't allow scrolling past the first or last item
+                let currentIndex = times.firstIndex(of: selectedTime) ?? 0
+                let maxLeftOffset = CGFloat(currentIndex) * itemWidth  // can't go past first item
+                let maxRightOffset = -CGFloat(times.count - 1 - currentIndex) * itemWidth  // can't go past last item
+                dragOffset = min(maxLeftOffset, max(maxRightOffset, newOffset))
             }, onEnd: {
                 finalizeSelection(with: dragOffset)
             })
@@ -115,24 +122,20 @@ struct TimeSelector: View {
 struct TimeOptionView: View {
     let time: Int
     let isSelected: Bool
-    let action: () -> Void
     
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text("\(time)")
-                    .font(.system(size: isSelected ? 40 : 24, weight: .medium))
-                    .foregroundColor(isSelected ? .white : .white.opacity(0.4))
-                if isSelected {
-                    Text("min")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.7))
-                }
+        VStack(spacing: 4) {
+            Text("\(time)")
+                .font(.system(size: isSelected ? 40 : 24, weight: .medium))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.4))
+            if isSelected {
+                Text("min")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.7))
             }
-            .frame(width: 70, height: 80)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(width: 70, height: 80)
+        .contentShape(Rectangle())
         .animation(.easeInOut(duration: 0.3), value: isSelected)
     }
 }

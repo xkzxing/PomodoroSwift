@@ -20,6 +20,41 @@ struct SettingsView: View {
                 FontPickerButton(selectedFont: $settings.selectedNSFont)
             }
             
+            // Timer Settings Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Timer Settings")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                
+                // Short Break Time
+                HStack {
+                    Text("Short Break")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $settings.breakTime) {
+                        ForEach([3, 5, 10, 15], id: \.self) { min in
+                            Text("\(min) min").tag(min)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 100)
+                }
+                
+                // Long Break Time
+                HStack {
+                    Text("Long Break")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Picker("", selection: $settings.longBreakTime) {
+                        ForEach([10, 15, 20, 30], id: \.self) { min in
+                            Text("\(min) min").tag(min)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 100)
+                }
+            }
+            
             // Liquid Glass Effect Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Liquid Glass Effect")
