@@ -38,9 +38,9 @@ class PomodoroTimer: ObservableObject {
     private let sessionsBeforeLongBreak = 4
     
     static let notificationCategoryID = "POMODORO_COMPLETE"
-    static let actionRestartNow = "RESTART_NOW"
-    static let actionRestart5Min = "RESTART_5MIN"
-    static let actionRestart10Min = "RESTART_10MIN"
+    static let actionStartBreak = "START_BREAK"
+    static let actionStartLongBreak = "START_LONG_BREAK"
+    static let actionDismiss = "DISMISS"
     
     init(workMinutes: Int, breakMinutes: Int = 5, longBreakMinutes: Int = 15) {
         self.workTime = workMinutes * 60
@@ -67,34 +67,43 @@ class PomodoroTimer: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            if let delaySeconds = notification.userInfo?["delaySeconds"] as? Int {
-                self?.restartTimer(afterDelay: delaySeconds)
+            guard let self = self else { return }
+            if let action = notification.userInfo?["action"] as? String {
+                switch action {
+                case "shortBreak":
+                    self.startBreak(long: false)
+                case "longBreak":
+                    self.startBreak(long: true)
+                default:
+                    self.startNextMode()
+                }
             }
         }
     }
     
     private func setupNotificationCategory() {
-        let restartNow = UNNotificationAction(
-            identifier: Self.actionRestartNow,
-            title: "Restart Now",
+        // Work complete actions
+        let startBreak = UNNotificationAction(
+            identifier: Self.actionStartBreak,
+            title: "Start Short Break",
             options: [.foreground]
         )
         
-        let restart5Min = UNNotificationAction(
-            identifier: Self.actionRestart5Min,
-            title: "5 minutes later",
-            options: []
+        let startLongBreak = UNNotificationAction(
+            identifier: Self.actionStartLongBreak,
+            title: "Start Long Break",
+            options: [.foreground]
         )
         
-        let restart10Min = UNNotificationAction(
-            identifier: Self.actionRestart10Min,
-            title: "10 minutes later",
+        let dismiss = UNNotificationAction(
+            identifier: Self.actionDismiss,
+            title: "Dismiss",
             options: []
         )
         
         let category = UNNotificationCategory(
             identifier: Self.notificationCategoryID,
-            actions: [restartNow, restart5Min, restart10Min],
+            actions: [startBreak, startLongBreak, dismiss],
             intentIdentifiers: [],
             options: []
         )
@@ -170,20 +179,27 @@ class PomodoroTimer: ObservableObject {
         UNUserNotificationCenter.current().add(request)
     }
     
-    // Public method for restarting timer (called from notification actions)
+    // Public method for handling notification actions
     func restartTimer(afterDelay seconds: Int = 0) {
         delayedRestartTimer?.invalidate()
-        
-        if seconds == 0 {
-            // Restart immediately
-            reset()
+        startNextMode()
+    }
+    
+    // Start a specific break mode from notification
+    func startBreak(long: Bool) {
+        if currentMode == .work {
+            if long {
+                currentMode = .longBreak
+                totalTime = longBreakTime
+            } else {
+                currentMode = .shortBreak
+                totalTime = breakTime
+            }
+            timeRemaining = totalTime
+            isCompleted = false
             start()
         } else {
-            // Schedule restart after delay
-            delayedRestartTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(seconds), repeats: false) { [weak self] _ in
-                self?.reset()
-                self?.start()
-            }
+            startNextMode()
         }
     }
     

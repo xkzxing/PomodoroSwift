@@ -42,29 +42,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // Handle notification action responses
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         
-        var delaySeconds = 0
-        
         switch response.actionIdentifier {
-        case PomodoroTimer.actionRestartNow:
-            delaySeconds = 0
-        case PomodoroTimer.actionRestart5Min:
-            delaySeconds = 5 * 60
-        case PomodoroTimer.actionRestart10Min:
-            delaySeconds = 10 * 60
+        case PomodoroTimer.actionStartBreak:
+            NotificationCenter.default.post(
+                name: NSNotification.Name("RestartPomodoroTimer"),
+                object: nil,
+                userInfo: ["action": "shortBreak"]
+            )
+        case PomodoroTimer.actionStartLongBreak:
+            NotificationCenter.default.post(
+                name: NSNotification.Name("RestartPomodoroTimer"),
+                object: nil,
+                userInfo: ["action": "longBreak"]
+            )
         case UNNotificationDefaultActionIdentifier:
-            // User clicked the notification itself (default action)
-            delaySeconds = 0
+            // User clicked the notification itself
+            NotificationCenter.default.post(
+                name: NSNotification.Name("RestartPomodoroTimer"),
+                object: nil,
+                userInfo: ["action": "next"]
+            )
         default:
-            completionHandler()
-            return
+            break
         }
-        
-        // Post notification for timer to handle
-        NotificationCenter.default.post(
-            name: NSNotification.Name("RestartPomodoroTimer"),
-            object: nil,
-            userInfo: ["delaySeconds": delaySeconds]
-        )
         
         completionHandler()
     }
