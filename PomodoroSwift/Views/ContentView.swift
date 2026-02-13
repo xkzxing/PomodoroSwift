@@ -18,7 +18,11 @@ struct ContentView: View {
     init() {
         let settings = Settings()
         _settings = StateObject(wrappedValue: settings)
-        _timer = StateObject(wrappedValue: PomodoroTimer(minutes: settings.selectedTime))
+        _timer = StateObject(wrappedValue: PomodoroTimer(
+            workMinutes: settings.selectedTime,
+            breakMinutes: settings.breakTime,
+            longBreakMinutes: settings.longBreakTime
+        ))
     }
     
     var body: some View {
@@ -28,7 +32,7 @@ struct ContentView: View {
                 // Background
                 BackgroundView(imageData: settings.backgroundImageData)
                 
-                // Content
+                
                 // Content
                 GeometryReader { geometry in
                     ZStack(alignment: .top) {
@@ -93,7 +97,11 @@ struct ContentView: View {
                                 Spacer()
                                 TimeSelector(selectedTime: $settings.selectedTime)
                                     .onChange(of: settings.selectedTime) { oldValue, newValue in
-                                        timer.updateTime(minutes: newValue)
+                                        timer.updateTime(
+                                            workMinutes: newValue,
+                                            breakMinutes: settings.breakTime,
+                                            longBreakMinutes: settings.longBreakTime
+                                        )
                                     }
                                     .padding(.bottom, 50)
                                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -111,8 +119,8 @@ struct ContentView: View {
             .background(WindowDragger()) 
             .zIndex(0)
             
-            // Overlay Backdrop
-            Color.black.opacity(0.3)
+            // Overlay Backdrop (tap to close)
+            Color.clear
                 .ignoresSafeArea()
                 .onTapGesture {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -228,7 +236,16 @@ struct ContentView: View {
     
     private var buttonText: String {
         if timer.isCompleted {
-            return "Reset"
+            switch timer.currentMode {
+            case .work:
+                if timer.sessionCount % 4 == 0 {
+                    return "Start Long Break"
+                } else {
+                    return "Start Short Break"
+                }
+            case .shortBreak, .longBreak:
+                return "Start Focus Session"
+            }
         } else if timer.isRunning {
             return "Pause"
         } else {
@@ -238,7 +255,7 @@ struct ContentView: View {
     
     private func toggleTimer() {
         if timer.isCompleted {
-            timer.reset()
+            timer.startNextMode()
         } else if timer.isRunning {
             timer.pause()
         } else {
