@@ -29,10 +29,6 @@ struct ContentView: View {
         ZStack(alignment: .leading) {
             // Main Content
             ZStack {
-                // Background
-                BackgroundView(imageData: settings.backgroundImageData)
-                
-                
                 // Content
                 GeometryReader { geometry in
                     ZStack(alignment: .top) {
@@ -42,6 +38,14 @@ struct ContentView: View {
                         
                         VStack(spacing: 0) {
                             Spacer()
+                            
+                            // Break Label
+                            if timer.currentMode == .shortBreak || timer.currentMode == .longBreak {
+                                Text("Break")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .padding(.bottom, 4)
+                            }
                             
                             // Timer Display
                             // Uses user-selected font size, but shrinks if constrained by the Safe Zone
@@ -91,23 +95,20 @@ struct ContentView: View {
                         .frame(width: geometry.size.width, height: safeAreaHeight)
                         .position(x: geometry.size.width / 2, y: safeAreaHeight / 2) // Explicit positioning
                         
-                        // Time Selector (Pinned to Bottom)
-                        if !timer.isRunning && !timer.isCompleted {
-                            VStack {
-                                Spacer()
-                                TimeSelector(selectedTime: $settings.selectedTime)
-                                    .onChange(of: settings.selectedTime) { oldValue, newValue in
-                                        timer.updateTime(
-                                            workMinutes: newValue,
-                                            breakMinutes: settings.breakTime,
-                                            longBreakMinutes: settings.longBreakTime
-                                        )
-                                    }
-                                    .padding(.bottom, 50)
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-                            }
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                            .allowsHitTesting(true)
+                        // Time Selector (Pinned to Window Bottom)
+                        if !timer.isRunning && !timer.isCompleted && timer.currentMode == .work {
+                            TimeSelector(selectedTime: $settings.selectedTime)
+                                .onChange(of: settings.selectedTime) { oldValue, newValue in
+                                    timer.updateTime(
+                                        workMinutes: newValue,
+                                        breakMinutes: settings.breakTime,
+                                        longBreakMinutes: settings.longBreakTime
+                                    )
+                                }
+                                .frame(width: geometry.size.width)
+                                .position(x: geometry.size.width / 2, y: geometry.size.height - 60)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                .allowsHitTesting(true)
                         }
                     }
                     .animation(.easeInOut(duration: 0.5), value: timer.isRunning)
@@ -115,6 +116,8 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 400, minHeight: 400)
+            .background(BackgroundView(imageData: settings.backgroundImageData))
+            .clipped()
             .ignoresSafeArea()
             .background(WindowDragger()) 
             .zIndex(0)
