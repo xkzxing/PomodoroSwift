@@ -39,7 +39,7 @@ struct GlassButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(isDestructive ? Color.red : .white)
+                .foregroundStyle(isDestructive ? Color.red : .primary)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
                 .contentShape(Rectangle())
