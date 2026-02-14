@@ -5,10 +5,12 @@
 
 import SwiftUI
 import UserNotifications
+import Combine
 
 struct ContentView: View {
     @StateObject private var settings = Settings()
     @StateObject private var timer: PomodoroTimer
+    @StateObject private var noiseManager = WhiteNoiseManager()
     @State private var showSidebar = false
     @State private var isButtonHovered = false
     @State private var isButtonPressed = false
@@ -169,9 +171,9 @@ struct ContentView: View {
                         .padding(20)
                 }
             }
+            .environment(\.colorScheme, settings.sidebarDarkMode ? .dark : .light)
             .frame(width: 340)
             .frame(maxHeight: .infinity)
-            .environment(\.colorScheme, .dark)
             .background(.clear)
             .glassEffect(glassStyle, in: RoundedRectangle(cornerRadius: 16))
             .shadow(color: .black.opacity(0.3), radius: 20, x: 5, y: 0)
@@ -225,7 +227,72 @@ struct ContentView: View {
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
             requestNotificationPermission()
+            // Sync initial noise settings
+            noiseManager.setVolume(settings.whiteNoiseVolume)
+            if let type = NoiseType(rawValue: settings.whiteNoiseType) {
+                noiseManager.setNoiseType(type)
+            }
+            syncCampfireParams()
         }
+        .onChange(of: settings.whiteNoiseVolume) { _, newValue in
+            noiseManager.setVolume(newValue)
+        }
+        .onChange(of: settings.whiteNoiseType) { _, newValue in
+            if let type = NoiseType(rawValue: newValue) {
+                noiseManager.setNoiseType(type)
+            }
+        }
+        .onChange(of: settings.whiteNoiseEnabled) { _, enabled in
+            if enabled && timer.isRunning {
+                noiseManager.play()
+            } else if !enabled {
+                noiseManager.stop()
+            }
+        }
+        .onChange(of: timer.isRunning) { _, running in
+            if running && settings.whiteNoiseEnabled {
+                noiseManager.play()
+            } else if !running {
+                noiseManager.stop()
+            }
+        }
+        .onReceive(
+            settings.$campfireRumble.merge(with:
+                settings.$campfireTexture,
+                settings.$campfireWoodyDensity,
+                settings.$campfireWoodyLevel,
+                settings.$campfireSnapDensity,
+                settings.$campfireSnapLevel,
+                settings.$campfireRumbleSmooth
+            ).merge(with:
+                settings.$campfireTextureSmooth,
+                settings.$campfireFreqLo,
+                settings.$campfireFreqMid,
+                settings.$campfireFreqHi,
+                settings.$campfireResonance,
+                settings.$campfireBurstProb
+            ).dropFirst()
+        ) { _ in
+            syncCampfireParams()
+        }
+    }
+    
+    private func syncCampfireParams() {
+        noiseManager.setCampfireParams(
+            rumble: settings.campfireRumble,
+            texture: settings.campfireTexture,
+            woodyDensity: settings.campfireWoodyDensity,
+            woodyLevel: settings.campfireWoodyLevel,
+            snapDensity: settings.campfireSnapDensity,
+            snapLevel: settings.campfireSnapLevel,
+            rumbleSmooth: settings.campfireRumbleSmooth,
+            textureSmooth: settings.campfireTextureSmooth,
+            freqLo: settings.campfireFreqLo,
+            freqMid: settings.campfireFreqMid,
+            freqHi: settings.campfireFreqHi,
+            resonance: settings.campfireResonance,
+            burstProb: settings.campfireBurstProb
+        )
     }
     
     private var glassStyle: Glass {
