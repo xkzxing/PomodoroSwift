@@ -76,6 +76,7 @@ struct SettingsView: View {
                     .foregroundStyle(.primary)
                 
                 Toggle("Enable White Noise", isOn: $settings.whiteNoiseEnabled)
+                    .toggleStyle(.switch)
                     .foregroundStyle(.secondary)
                 
                 if settings.whiteNoiseEnabled {

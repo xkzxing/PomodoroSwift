@@ -124,18 +124,14 @@ class Settings: ObservableObject {
         }
     }
     
-    @Published var sidebarDarkMode: Bool {
-        didSet {
-            UserDefaults.standard.set(sidebarDarkMode, forKey: "sidebarDarkMode")
-        }
-    }
+    @AppStorage("sidebarDarkMode") var sidebarDarkMode: Bool = true
     
-    // White Noise Settings
     @Published var whiteNoiseEnabled: Bool {
         didSet {
             UserDefaults.standard.set(whiteNoiseEnabled, forKey: "whiteNoiseEnabled")
         }
     }
+    @AppStorage("whiteNoiseType") var whiteNoiseTypeRaw: String = "white"
     
     @Published var whiteNoiseVolume: Double {
         didSet {

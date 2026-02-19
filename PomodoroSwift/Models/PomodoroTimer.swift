@@ -5,7 +5,8 @@
 
 import Foundation
 import UserNotifications
-import Combine  // 添加这个 import
+import Combine
+import AppKit
 
 enum TimerMode {
     case work
@@ -35,6 +36,10 @@ class PomodoroTimer: ObservableObject {
     private var breakTime: Int
     private var longBreakTime: Int
     
+    // Wall-clock based timing
+    private var startDate: Date?
+    private var timeRemainingAtStart: Int = 0
+    
     private let sessionsBeforeLongBreak = 4
     
     static let notificationCategoryID = "POMODORO_COMPLETE"
@@ -50,6 +55,7 @@ class PomodoroTimer: ObservableObject {
         self.timeRemaining = workMinutes * 60
         setupNotificationCategory()
         setupNotificationObserver()
+        setupAppActiveObserver()
     }
     
     deinit {
@@ -57,8 +63,29 @@ class PomodoroTimer: ObservableObject {
         timer?.invalidate()
         delayedRestartTimer?.invalidate()
         
-        // Remove notification observer
-        NotificationCenter.default.removeObserver(self, name: NSNotification.Name("RestartPomodoroTimer"), object: nil)
+        // Remove notification observers
+        NotificationCenter.default.removeObserver(self)
+    }
+    
+    private func setupAppActiveObserver() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.recalculateTimeRemaining()
+        }
+    }
+    
+    /// Recalculate timeRemaining from wall clock — called when app returns to foreground
+    private func recalculateTimeRemaining() {
+        guard isRunning, let startDate = startDate else { return }
+        let elapsed = Int(Date().timeIntervalSince(startDate))
+        let newRemaining = max(0, timeRemainingAtStart - elapsed)
+        timeRemaining = newRemaining
+        if newRemaining <= 0 {
+            complete()
+        }
     }
     
     private func setupNotificationObserver() {
@@ -116,31 +143,58 @@ class PomodoroTimer: ObservableObject {
         isRunning = true
         isCompleted = false
         
+        // Record wall-clock start point
+        startDate = Date()
+        timeRemainingAtStart = timeRemaining
+        
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-            
-            if self.timeRemaining > 0 {
-                self.timeRemaining -= 1
-            } else {
-                self.complete()
-            }
+            self.recalculateTimeRemaining()
         }
     }
     
     func pause() {
+        // Set isRunning false FIRST to prevent re-entrant complete() if time happens to be 0
         isRunning = false
+        // Snapshot the current remaining time before clearing startDate
+        if let startDate = startDate {
+            let elapsed = Int(Date().timeIntervalSince(startDate))
+            timeRemaining = max(0, timeRemainingAtStart - elapsed)
+        }
         timer?.invalidate()
         timer = nil
+        startDate = nil
     }
     
     func reset() {
-        pause()
+        isRunning = false
+        timer?.invalidate()
+        timer = nil
+        startDate = nil
         timeRemaining = totalTime
         isCompleted = false
     }
     
+    /// Fully reset back to work mode (initial state)
+    func resetToWork() {
+        isRunning = false
+        timer?.invalidate()
+        timer = nil
+        startDate = nil
+        currentMode = .work
+        totalTime = workTime
+        timeRemaining = workTime
+        isCompleted = false
+    }
+    
     private func complete() {
-        pause()
+        // Stop timer directly instead of calling pause() to avoid
+        // infinite recursion: recalculateTimeRemaining → complete → pause → recalculateTimeRemaining
+        isRunning = false
+        timer?.invalidate()
+        timer = nil
+        startDate = nil
+        timeRemaining = 0
         isCompleted = true
         
         // Increment session count when completing work
