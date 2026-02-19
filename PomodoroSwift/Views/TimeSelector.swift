@@ -35,6 +35,12 @@ struct TimeSelector: View {
                             isSelected: selectedTime == time
                         )
                         .frame(width: itemWidth)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                                selectedTime = time
+                                dragOffset = 0
+                            }
+                        }
                     }
                 }
                 .offset(x: currentOffset)

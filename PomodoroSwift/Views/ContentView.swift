@@ -12,8 +12,6 @@ struct ContentView: View {
     @StateObject private var timer: PomodoroTimer
     @StateObject private var noiseManager = WhiteNoiseManager()
     @State private var showSidebar = false
-    @State private var isButtonHovered = false
-    @State private var isButtonPressed = false
     @State private var isSidebarToggleHovered = false
     @State private var isSidebarTogglePressed = false
     
@@ -59,38 +57,44 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)
                             
-                            // Control Button
-                            Button(action: toggleTimer) {
-                                Text(buttonText)
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 32)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .background(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .fill(.clear)
-                                    .glassEffect(glassStyle)
-                            )
-                            .scaleEffect(isButtonPressed ? 0.95 : (isButtonHovered ? 1.05 : 1.0))
-                            .opacity(isButtonPressed ? 0.9 : 1.0)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isButtonHovered)
-                            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isButtonPressed)
-                            .onHover { hovering in
-                                isButtonHovered = hovering
-                            }
-                            .simultaneousGesture(
-                                DragGesture(minimumDistance: 0)
-                                    .onChanged { _ in
-                                        isButtonPressed = true
+                            // Control Buttons
+                            if timer.isCompleted && timer.currentMode == .work {
+                                // Work completed → 3 options
+                                HStack(spacing: 12) {
+                                    controlButton("Stop") {
+                                        timer.resetToWork()
                                     }
-                                    .onEnded { _ in
-                                        isButtonPressed = false
+                                    controlButton("Short Break") {
+                                        timer.startBreak(long: false)
                                     }
-                            )
-                            .padding(.top, 20)
+                                    controlButton("Long Break") {
+                                        timer.startBreak(long: true)
+                                    }
+                                }
+                                .padding(.top, 20)
+                            } else if timer.isCompleted {
+                                // Break completed → start focus
+                                controlButton("Start Focus Session") {
+                                    timer.startNextMode()
+                                }
+                                .padding(.top, 20)
+                            } else if timer.isRunning && (timer.currentMode == .shortBreak || timer.currentMode == .longBreak) {
+                                // Break running → stop break
+                                controlButton("Stop Break") {
+                                    timer.resetToWork()
+                                }
+                                .padding(.top, 20)
+                            } else {
+                                // Work: Start or Pause
+                                controlButton(timer.isRunning ? "Pause" : "Start") {
+                                    if timer.isRunning {
+                                        timer.pause()
+                                    } else {
+                                        timer.start()
+                                    }
+                                }
+                                .padding(.top, 20)
+                            }
                             
                             Spacer()
                         }
@@ -125,7 +129,7 @@ struct ContentView: View {
             .zIndex(0)
             
             // Overlay Backdrop (tap to close)
-            Color.clear
+            Color.black.opacity(0.001)
                 .ignoresSafeArea()
                 .onTapGesture {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -277,6 +281,8 @@ struct ContentView: View {
         }
     }
     
+
+    
     private func syncCampfireParams() {
         noiseManager.setCampfireParams(
             rumble: settings.campfireRumble,
@@ -304,33 +310,22 @@ struct ContentView: View {
         }
     }
     
-    private var buttonText: String {
-        if timer.isCompleted {
-            switch timer.currentMode {
-            case .work:
-                if timer.sessionCount % 4 == 0 {
-                    return "Start Long Break"
-                } else {
-                    return "Start Short Break"
-                }
-            case .shortBreak, .longBreak:
-                return "Start Focus Session"
-            }
-        } else if timer.isRunning {
-            return "Pause"
-        } else {
-            return "Start"
+    @ViewBuilder
+    private func controlButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 32)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
         }
-    }
-    
-    private func toggleTimer() {
-        if timer.isCompleted {
-            timer.startNextMode()
-        } else if timer.isRunning {
-            timer.pause()
-        } else {
-            timer.start()
-        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(.clear)
+                .glassEffect(glassStyle)
+        )
     }
     
     private func requestNotificationPermission() {
