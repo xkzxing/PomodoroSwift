@@ -20,14 +20,14 @@ struct SettingsView: View {
                 
                 FontPickerButton(selectedFont: $settings.selectedNSFont)
                 
-                // Dark/Light text mode
+                // App-wide Light/Dark Mode
                 HStack {
-                    Text("Text Style")
+                    Text("Appearance")
                         .foregroundStyle(.secondary)
                     Spacer()
                     Picker("", selection: $settings.sidebarDarkMode) {
-                        Text("Light").tag(true)
-                        Text("Dark").tag(false)
+                        Text("Dark").tag(true)
+                        Text("Light").tag(false)
                     }
                     .pickerStyle(.segmented)
                     .frame(width: 120)

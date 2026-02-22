@@ -14,9 +14,15 @@ struct GlassButton: View {
     let isInteractive: Bool
     let isDestructive: Bool
     
+    // Customization parameters
+    let fontSize: CGFloat
+    let horizontalPadding: CGFloat
+    let verticalPadding: CGFloat
+    let cornerRadius: CGFloat
+
     @State private var isHovered = false
     @State private var isPressed = false
-    
+
     init(
         _ title: String,
         variant: String = "regular",
@@ -24,6 +30,10 @@ struct GlassButton: View {
         tintOpacity: Double = 0.15,
         isInteractive: Bool = false,
         isDestructive: Bool = false,
+        fontSize: CGFloat = 14,
+        horizontalPadding: CGFloat = 20,
+        verticalPadding: CGFloat = 8,
+        cornerRadius: CGFloat = 8,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -32,31 +42,35 @@ struct GlassButton: View {
         self.tintOpacity = tintOpacity
         self.isInteractive = isInteractive
         self.isDestructive = isDestructive
+        self.fontSize = fontSize
+        self.horizontalPadding = horizontalPadding
+        self.verticalPadding = verticalPadding
+        self.cornerRadius = cornerRadius
         self.action = action
     }
     
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: fontSize, weight: .medium))
                 .foregroundStyle(isDestructive ? Color.red : .primary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: cornerRadius)
                 .fill(.clear)
                 .glassEffect(
                     {
-                        let baseGlass: Glass = variant == "clear" ? .clear : .regular
+                        var glass: Glass = variant == "clear" ? .clear : .regular
+                        let color = isDestructive ? Color.red : tintColor
+                        glass = glass.tint(color.opacity(tintOpacity))
                         if isInteractive {
-                            return baseGlass.interactive()
-                        } else {
-                            let color = isDestructive ? Color.red : tintColor
-                            return baseGlass.tint(color.opacity(tintOpacity))
+                            glass = glass.interactive()
                         }
+                        return glass
                     }()
                 )
         )
@@ -81,7 +95,16 @@ struct GlassButton: View {
 
 // Extension to use settings directly
 extension GlassButton {
-    init(_ title: String, settings: Settings, isDestructive: Bool = false, action: @escaping () -> Void) {
+    init(
+        _ title: String, 
+        settings: Settings, 
+        isDestructive: Bool = false, 
+        fontSize: CGFloat = 14,
+        horizontalPadding: CGFloat = 20,
+        verticalPadding: CGFloat = 8,
+        cornerRadius: CGFloat = 8,
+        action: @escaping () -> Void
+    ) {
         self.init(
             title,
             variant: settings.glassVariant,
@@ -89,6 +112,10 @@ extension GlassButton {
             tintOpacity: settings.glassTintOpacity,
             isInteractive: settings.glassInteractive,
             isDestructive: isDestructive,
+            fontSize: fontSize,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding,
+            cornerRadius: cornerRadius,
             action: action
         )
     }

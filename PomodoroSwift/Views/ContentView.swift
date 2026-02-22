@@ -61,32 +61,32 @@ struct ContentView: View {
                             if timer.isCompleted && timer.currentMode == .work {
                                 // Work completed → 3 options
                                 HStack(spacing: 12) {
-                                    controlButton("Stop") {
+                                    glassControlButton("Stop") {
                                         timer.resetToWork()
                                     }
-                                    controlButton("Short Break") {
+                                    glassControlButton("Short Break") {
                                         timer.startBreak(long: false)
                                     }
-                                    controlButton("Long Break") {
+                                    glassControlButton("Long Break") {
                                         timer.startBreak(long: true)
                                     }
                                 }
                                 .padding(.top, 20)
                             } else if timer.isCompleted {
                                 // Break completed → start focus
-                                controlButton("Start Focus Session") {
+                                glassControlButton("Start Focus Session") {
                                     timer.startNextMode()
                                 }
                                 .padding(.top, 20)
                             } else if timer.isRunning && (timer.currentMode == .shortBreak || timer.currentMode == .longBreak) {
                                 // Break running → stop break
-                                controlButton("Stop Break") {
+                                glassControlButton("Stop Break") {
                                     timer.resetToWork()
                                 }
                                 .padding(.top, 20)
                             } else {
                                 // Work: Start or Pause
-                                controlButton(timer.isRunning ? "Pause" : "Start") {
+                                glassControlButton(timer.isRunning ? "Pause" : "Start") {
                                     if timer.isRunning {
                                         timer.pause()
                                     } else {
@@ -124,7 +124,6 @@ struct ContentView: View {
                         VStack {
                             Spacer()
                             ToDoView(glassEffect: glassStyle, listMaxHeight: max(todoMaxHeight - 100, 180))
-                                .frame(maxWidth: 360)
                                 .padding(.bottom, bottomPadding)
                         }
                         .frame(width: geometry.size.width, height: geometry.size.height)
@@ -187,7 +186,6 @@ struct ContentView: View {
                         .padding(20)
                 }
             }
-            .environment(\.colorScheme, settings.sidebarDarkMode ? .dark : .light)
             .frame(width: 340)
             .frame(maxHeight: .infinity)
             .background(.clear)
@@ -240,6 +238,8 @@ struct ContentView: View {
             .allowsHitTesting(!showSidebar)
             .zIndex(1)
         }
+        .preferredColorScheme(settings.sidebarDarkMode ? .dark : .light)
+        .environment(\.colorScheme, settings.sidebarDarkMode ? .dark : .light)
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
             requestNotificationPermission()
@@ -314,29 +314,24 @@ struct ContentView: View {
     }
     
     private var glassStyle: Glass {
-        let baseGlass: Glass = settings.glassVariant == "clear" ? .clear : .regular
+        var glass: Glass = settings.glassVariant == "clear" ? .clear : .regular
+        glass = glass.tint(settings.glassTintColor.opacity(settings.glassTintOpacity))
         if settings.glassInteractive {
-            return baseGlass.interactive()
-        } else {
-            return baseGlass.tint(settings.glassTintColor.opacity(settings.glassTintOpacity))
+            glass = glass.interactive()
         }
+        return glass
     }
     
     @ViewBuilder
-    private func controlButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 32)
-                .padding(.vertical, 12)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.clear)
-                .glassEffect(glassStyle)
+    private func glassControlButton(_ title: String, action: @escaping () -> Void) -> some View {
+        GlassButton(
+            title, 
+            settings: settings, 
+            fontSize: 18, 
+            horizontalPadding: 32, 
+            verticalPadding: 12, 
+            cornerRadius: 14, 
+            action: action
         )
     }
     
