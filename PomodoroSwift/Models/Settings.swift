@@ -123,8 +123,18 @@ class Settings: ObservableObject {
             UserDefaults.standard.set(glassInteractive, forKey: "glassInteractive")
         }
     }
+
+    @Published var glassButtonFontDark: Bool {
+        didSet {
+            UserDefaults.standard.set(glassButtonFontDark, forKey: "glassButtonFontDark")
+        }
+    }
     
-    @AppStorage("sidebarDarkMode") var sidebarDarkMode: Bool = true
+    @Published var sidebarDarkMode: Bool {
+        didSet {
+            UserDefaults.standard.set(sidebarDarkMode, forKey: "sidebarDarkMode")
+        }
+    }
     
     @Published var whiteNoiseEnabled: Bool {
         didSet {
@@ -239,6 +249,9 @@ class Settings: ObservableObject {
             ? UserDefaults.standard.double(forKey: "glassTintOpacity") 
             : 0.15
         self.glassInteractive = UserDefaults.standard.bool(forKey: "glassInteractive")
+        self.glassButtonFontDark = UserDefaults.standard.object(forKey: "glassButtonFontDark") != nil
+            ? UserDefaults.standard.bool(forKey: "glassButtonFontDark")
+            : false
         self.sidebarDarkMode = UserDefaults.standard.object(forKey: "sidebarDarkMode") == nil
             ? true
             : UserDefaults.standard.bool(forKey: "sidebarDarkMode")
