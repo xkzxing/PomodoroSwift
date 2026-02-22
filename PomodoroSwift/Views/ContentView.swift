@@ -116,6 +116,18 @@ struct ContentView: View {
                                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                                 .allowsHitTesting(true)
                         }
+
+                        // To-Do Panel (pinned bottom, above TimeSelector)
+                        let bottomPadding: CGFloat = (!timer.isRunning && !timer.isCompleted && timer.currentMode == .work) ? 100 : 16
+                        // Available height below the safe area (where Start button lives)
+                        let todoMaxHeight = max(geometry.size.height - safeAreaHeight - bottomPadding, 60)
+                        VStack {
+                            Spacer()
+                            ToDoView(glassEffect: glassStyle, listMaxHeight: max(todoMaxHeight - 100, 180))
+                                .frame(maxWidth: 360)
+                                .padding(.bottom, bottomPadding)
+                        }
+                        .frame(width: geometry.size.width, height: geometry.size.height)
                     }
                     .animation(.easeInOut(duration: 0.5), value: timer.isRunning)
                     .animation(.easeInOut(duration: 0.5), value: timer.isCompleted)
