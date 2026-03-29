@@ -27,12 +27,23 @@ class ToDoStore: ObservableObject {
         didSet { save() }
     }
 
-    private let key = "toDoItems"
+    private let key: String
 
-    init() {
+    init(panelId: UUID) {
+        self.key = "toDoItems_\(panelId.uuidString)"
+        
+        // Attempt to load from new unique key
         if let data = UserDefaults.standard.data(forKey: key),
            let decoded = try? JSONDecoder().decode([ToDoItem].self, from: data) {
             self.items = decoded
+        } 
+        // Migration: If no unique key data exists, but legacy global data exists, import it once ONLY!
+        else if !UserDefaults.standard.bool(forKey: "hasMigratedLegacyToDoStore"),
+                let legacyData = UserDefaults.standard.data(forKey: "toDoItems"),
+                let legacyDecoded = try? JSONDecoder().decode([ToDoItem].self, from: legacyData) {
+            self.items = legacyDecoded
+            save() // Save immediately to new key
+            UserDefaults.standard.set(true, forKey: "hasMigratedLegacyToDoStore")
         }
     }
 
@@ -65,65 +76,95 @@ class ToDoStore: ObservableObject {
             items[idx].text = trimmed
         }
     }
+
 }
 
 // MARK: - To-Do Glass Settings (persistent, per-panel)
 
 class ToDoGlassSettings: ObservableObject {
+    let panelId: UUID
+
+    private func key(_ base: String) -> String {
+        return "\(base)_\(panelId.uuidString)"
+    }
+
     @Published var useCustom: Bool {
-        didSet { UserDefaults.standard.set(useCustom, forKey: "todoGlassUseCustom") }
+        didSet { UserDefaults.standard.set(useCustom, forKey: key("todoGlassUseCustom")) }
     }
     @Published var variant: String {
-        didSet { UserDefaults.standard.set(variant, forKey: "todoGlassVariant") }
+        didSet { UserDefaults.standard.set(variant, forKey: key("todoGlassVariant")) }
     }
     @Published var tintColor: Color {
         didSet {
             if let components = tintColor.cgColor?.components, components.count >= 3 {
-                UserDefaults.standard.set([components[0], components[1], components[2]], forKey: "todoGlassTintColor")
+                UserDefaults.standard.set([components[0], components[1], components[2]], forKey: key("todoGlassTintColor"))
             }
         }
     }
     @Published var tintOpacity: Double {
-        didSet { UserDefaults.standard.set(tintOpacity, forKey: "todoGlassTintOpacity") }
+        didSet { UserDefaults.standard.set(tintOpacity, forKey: key("todoGlassTintOpacity")) }
     }
     @Published var fontDark: Bool {
-        didSet { UserDefaults.standard.set(fontDark, forKey: "todoFontDark") }
+        didSet { UserDefaults.standard.set(fontDark, forKey: key("todoFontDark")) }
     }
 
     // Drag position
     @Published var offsetX: Double {
-        didSet { UserDefaults.standard.set(offsetX, forKey: "todoOffsetX") }
+        didSet { UserDefaults.standard.set(offsetX, forKey: key("todoOffsetX")) }
     }
     @Published var offsetY: Double {
-        didSet { UserDefaults.standard.set(offsetY, forKey: "todoOffsetY") }
+        didSet { UserDefaults.standard.set(offsetY, forKey: key("todoOffsetY")) }
     }
 
     // Resize extra height
     @Published var extraHeight: Double {
-        didSet { UserDefaults.standard.set(extraHeight, forKey: "todoExtraHeight") }
+        didSet { UserDefaults.standard.set(extraHeight, forKey: key("todoExtraHeight")) }
     }
     @Published var extraWidth: Double {
-        didSet { UserDefaults.standard.set(extraWidth, forKey: "todoExtraWidth") }
+        didSet { UserDefaults.standard.set(extraWidth, forKey: key("todoExtraWidth")) }
     }
 
-    init() {
-        self.useCustom = UserDefaults.standard.bool(forKey: "todoGlassUseCustom")
-        self.variant = UserDefaults.standard.string(forKey: "todoGlassVariant") ?? "regular"
-        if let arr = UserDefaults.standard.array(forKey: "todoGlassTintColor") as? [CGFloat], arr.count >= 3 {
+    init(panelId: UUID) {
+        self.panelId = panelId
+        
+        func k(_ base: String) -> String { "\(base)_\(panelId.uuidString)" }
+
+        // MIGRATION HELPER: Fallback to global legacy keys if new unique key is empty
+        func migrate<T>(base: String, type: T.Type) -> T? {
+            let uniqueKey = k(base)
+            if UserDefaults.standard.object(forKey: uniqueKey) != nil {
+                return UserDefaults.standard.object(forKey: uniqueKey) as? T
+            }
+            if !UserDefaults.standard.bool(forKey: "hasMigratedLegacyGlass") {
+                if UserDefaults.standard.object(forKey: base) != nil {
+                    let val = UserDefaults.standard.object(forKey: base) as? T
+                    UserDefaults.standard.set(val, forKey: uniqueKey) // Save immediately to new key spaces
+                    return val
+                }
+            }
+            return nil
+        }
+
+        self.useCustom = migrate(base: "todoGlassUseCustom", type: Bool.self) ?? false
+        self.variant = migrate(base: "todoGlassVariant", type: String.self) ?? "regular"
+        if let arr = migrate(base: "todoGlassTintColor", type: [CGFloat].self), arr.count >= 3 {
             self.tintColor = Color(red: arr[0], green: arr[1], blue: arr[2])
         } else {
             self.tintColor = .white
         }
-        let savedOpacity = UserDefaults.standard.double(forKey: "todoGlassTintOpacity")
+        let savedOpacity = migrate(base: "todoGlassTintOpacity", type: Double.self) ?? 0
         self.tintOpacity = savedOpacity != 0 ? savedOpacity : 0.15
-        // fontDark: default false (light text on glass)
-        self.fontDark = UserDefaults.standard.object(forKey: "todoFontDark") != nil
-            ? UserDefaults.standard.bool(forKey: "todoFontDark")
-            : false
-        self.offsetX = UserDefaults.standard.double(forKey: "todoOffsetX")
-        self.offsetY = UserDefaults.standard.double(forKey: "todoOffsetY")
-        self.extraHeight = UserDefaults.standard.double(forKey: "todoExtraHeight")
-        self.extraWidth = UserDefaults.standard.double(forKey: "todoExtraWidth")
+        
+        self.fontDark = migrate(base: "todoFontDark", type: Bool.self) ?? false
+        
+        // Default spawn position: slight jitter based on UUID to avoid stacking
+        let jitter = Double(panelId.uuidString.first?.hexDigitValue ?? 0) * 5.0
+        self.offsetX = migrate(base: "todoOffsetX", type: Double.self) ?? (60 + jitter)
+        self.offsetY = migrate(base: "todoOffsetY", type: Double.self) ?? (100 + jitter)
+        self.extraHeight = migrate(base: "todoExtraHeight", type: Double.self) ?? 0
+        self.extraWidth = migrate(base: "todoExtraWidth", type: Double.self) ?? 0
+        
+        UserDefaults.standard.set(true, forKey: "hasMigratedLegacyGlass")
     }
 
     static let variants: [(String, String)] = [
@@ -150,19 +191,62 @@ extension EnvironmentValues {
     }
 }
 
+// MARK: - Preference Key for Row Frames (drag reorder)
+
+private struct RowFrameKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+// MARK: - Drag Handle
+
+private struct DragHandle: View {
+    let textColor: Color
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: (CGFloat) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(textColor.opacity(isHovered ? 0.5 : 0.2))
+            .frame(width: 18, height: 34)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in onDragChanged(value.translation.height) }
+                    .onEnded { value in onDragEnded(value.translation.height) }
+            )
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
+            }
+    }
+}
+
 // MARK: - To-Do Panel View
 
 struct ToDoView: View {
-    @StateObject private var store = ToDoStore()
-    @StateObject private var glassSettings = ToDoGlassSettings()
+    let panel: ToDoPanel
+    @StateObject private var store: ToDoStore
+    @StateObject private var glassSettings: ToDoGlassSettings
+    @EnvironmentObject private var settings: Settings
     @State private var newText: String = ""
     @State private var isExpanded: Bool = true
     @FocusState private var inputFocused: Bool
 
+    // Drag-to-reorder state
+    @State private var draggingItemId: UUID?
+    @State private var dragYOffset: CGFloat = 0
+    @State private var rowFrames: [UUID: CGRect] = [:]
+
     // Glass style from parent (used when not custom)
     var glassEffect: Glass
     // List max height passed from parent
-    var listMaxHeight: CGFloat = 180
+    var listMaxHeight: CGFloat
 
     // Popover state
     @State private var showGlassPicker: Bool = false
@@ -171,101 +255,48 @@ struct ToDoView: View {
     @State private var liveDragOffset: CGSize = .zero
     @State private var liveExtraSize: CGSize = .zero
 
+    init(panel: ToDoPanel, glassEffect: Glass, listMaxHeight: CGFloat = 180) {
+        self.panel = panel
+        self.glassEffect = glassEffect
+        self.listMaxHeight = listMaxHeight
+        
+        self._store = StateObject(wrappedValue: ToDoStore(panelId: panel.id))
+        self._glassSettings = StateObject(wrappedValue: ToDoGlassSettings(panelId: panel.id))
+    }
+
     private var effectiveGlass: Glass {
         glassSettings.useCustom ? glassSettings.buildGlass() : glassEffect
     }
 
-    /// Resolved text color for this panel
-    private var textColor: Color { glassSettings.fontDark ? .black : .white }
+    /// Calculates clamped delta width during drag to pin the left edge
+    private var widthChangeDuringDrag: CGFloat {
+        let currentW = max(glassSettings.extraWidth, -160)
+        let newW = max(glassSettings.extraWidth + liveExtraSize.width, -160)
+        return newW - currentW
+    }
+
+    /// Calculates clamped delta height during drag to pin the top edge
+    private var heightChangeDuringDrag: CGFloat {
+        let currentH = max(glassSettings.extraHeight, -listMaxHeight + 44)
+        let newH = max(glassSettings.extraHeight + liveExtraSize.height, -listMaxHeight + 44)
+        return newH - currentH
+    }
+
+    /// Resolved text color: follows global setting when not using custom glass
+    private var textColor: Color {
+        let isDark = glassSettings.useCustom ? glassSettings.fontDark : !settings.sidebarDarkMode
+        return isDark ? .black : .white
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // ── Expanded content (above header) ─────────────────────────────
-            if isExpanded {
-                // ── Resize handle (top edge) ──────────────────────────────────
-                HStack {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 8, weight: .regular))
-                        .foregroundStyle(textColor.opacity(0.3))
-                        .padding(.leading, 10)
-                        .padding(.top, 4)
-                        .frame(width: 40, height: 16)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            DragGesture(coordinateSpace: .global)
-                                .onChanged { value in
-                                    liveExtraSize = value.translation
-                                }
-                                .onEnded { value in
-                                    let newExtraH = glassSettings.extraHeight - value.translation.height
-                                    let newExtraW = glassSettings.extraWidth + value.translation.width
-                                    glassSettings.extraHeight = max(newExtraH, -listMaxHeight + 44)
-                                    glassSettings.extraWidth = max(newExtraW, -160)
-                                    liveExtraSize = .zero
-                                }
-                        )
-                        .onHover { hovering in
-                            if hovering { NSCursor.crosshair.push() } else { NSCursor.pop() }
-                        }
-                    Spacer()
-                }
-
-                // Input field
-                HStack(spacing: 10) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(textColor.opacity(0.5))
-
-                    TextField("Add a task…", text: $newText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13))
-                        .foregroundStyle(textColor)
-                        .focused($inputFocused)
-                        .onSubmit {
-                            store.add(newText)
-                            newText = ""
-                        }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-
-                Divider().background(.white.opacity(0.15))
-
-                // Task list
-                if !store.items.isEmpty {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(store.items) { item in
-                                ToDoRow(item: item, onToggle: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        store.toggle(item)
-                                    }
-                                }, onDelete: {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        if let idx = store.items.firstIndex(where: { $0.id == item.id }) {
-                                            store.delete(at: IndexSet(integer: idx))
-                                        }
-                                    }
-                                }, onEdit: { newText in
-                                    store.update(item, newText: newText)
-                                })
-                            }
-                        }
-                    }
-                    .frame(maxHeight: max(listMaxHeight + glassSettings.extraHeight - liveExtraSize.height, 44))
-                    .environment(\.todoTextColor, textColor)
-                }
-
-                Divider().background(.white.opacity(0.15))
-            }
-
-            // ── Header / drag bar (pinned at bottom) ─────────────────────────
+            // ── Header / drag bar (pinned at top) ─────────────────────────
             HStack(spacing: 8) {
                 Image(systemName: "checkmark.circle")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.85))
 
-                Text("To-Do")
+                Text(panel.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(textColor.opacity(0.9))
 
@@ -290,7 +321,7 @@ struct ToDoView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .popover(isPresented: $showGlassPicker, arrowEdge: .bottom) {
+                .popover(isPresented: $showGlassPicker, arrowEdge: .top) {
                     ToDoGlassPopover(glassSettings: glassSettings)
                 }
 
@@ -298,7 +329,7 @@ struct ToDoView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.6))
-                    .rotationEffect(.degrees(isExpanded ? 0 : 180))
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     .animation(.spring(response: 0.35, dampingFraction: 0.75), value: isExpanded)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -325,8 +356,114 @@ struct ToDoView: View {
             .onHover { hovering in
                 if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
             }
+
+            // ── Expanded content (below header) ─────────────────────────────
+            if isExpanded {
+                Divider().background(.white.opacity(0.15))
+
+                // Task list
+                let computedHeight = max(listMaxHeight + glassSettings.extraHeight + liveExtraSize.height, 44)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(store.items) { item in
+                            HStack(spacing: 0) {
+                                DragHandle(textColor: textColor) { translation in
+                                    if draggingItemId == nil { draggingItemId = item.id }
+                                    dragYOffset = translation
+                                } onDragEnded: { translation in
+                                    handleDrop(for: item, translation: translation)
+                                }
+
+                                ToDoRow(item: item, onToggle: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        store.toggle(item)
+                                    }
+                                }, onDelete: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        if let idx = store.items.firstIndex(where: { $0.id == item.id }) {
+                                            store.delete(at: IndexSet(integer: idx))
+                                        }
+                                    }
+                                }, onEdit: { newText in
+                                    store.update(item, newText: newText)
+                                })
+                            }
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: RowFrameKey.self,
+                                        value: [item.id: geo.frame(in: .named("todoReorder"))]
+                                    )
+                                }
+                            )
+                            .offset(y: draggingItemId == item.id ? dragYOffset : 0)
+                            .zIndex(draggingItemId == item.id ? 1 : 0)
+                            .opacity(draggingItemId == item.id ? 0.75 : 1.0)
+                            .scaleEffect(draggingItemId == item.id ? 1.03 : 1.0)
+                            .shadow(color: draggingItemId == item.id ? .black.opacity(0.18) : .clear, radius: 6, y: 2)
+                        }
+                    }
+                    .coordinateSpace(name: "todoReorder")
+                    .onPreferenceChange(RowFrameKey.self) { frames in
+                        rowFrames = frames
+                    }
+                }
+                .scrollDisabled(draggingItemId != nil)
+                .frame(height: computedHeight)
+                .environment(\.todoTextColor, textColor)
+
+                if !store.items.isEmpty {
+                    Divider().background(.white.opacity(0.15))
+                }
+
+                // Input field + Resize handle at the very bottom
+                ZStack(alignment: .bottomTrailing) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(textColor.opacity(0.5))
+
+                        TextField("Add a task…", text: $newText)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13))
+                            .foregroundStyle(textColor)
+                            .focused($inputFocused)
+                            .onSubmit {
+                                store.add(newText)
+                                newText = ""
+                            }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .padding(.trailing, 20) // Leave space for resize handle
+                    
+                    // Resize handle (bottom right)
+                    Image(systemName: "circle.grid.2x2.fill")
+                        .font(.system(size: 8, weight: .regular))
+                        .foregroundStyle(textColor.opacity(0.3))
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 8)
+                        .padding(.top, 4)
+                        .contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(coordinateSpace: .global)
+                                .onChanged { value in
+                                    liveExtraSize = value.translation
+                                }
+                                .onEnded { value in
+                                    glassSettings.extraHeight = max(glassSettings.extraHeight + value.translation.height, -listMaxHeight + 44)
+                                    glassSettings.extraWidth = max(glassSettings.extraWidth + value.translation.width, -160)
+                                    
+                                    liveExtraSize = .zero
+                                }
+                        )
+                        .onHover { hovering in
+                            if hovering { NSCursor.crosshair.push() } else { NSCursor.pop() }
+                        }
+                }
+            }
         }
-        .frame(width: max(360 + glassSettings.extraWidth + liveExtraSize.width, 200)) // Apply width modification here
+        .frame(width: max(280 + glassSettings.extraWidth + liveExtraSize.width, 200)) // Shrunk base width to 280
         .contentShape(Rectangle())
         .background(.clear)
         .glassEffect(effectiveGlass, in: RoundedRectangle(cornerRadius: 14))
@@ -336,6 +473,52 @@ struct ToDoView: View {
             x: glassSettings.offsetX + liveDragOffset.width,
             y: glassSettings.offsetY + liveDragOffset.height
         )
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("resetToDoPanel"))) { notification in
+            if let targetId = notification.userInfo?["panelId"] as? UUID, targetId == panel.id {
+                let jitter = Double(panel.id.uuidString.first?.hexDigitValue ?? 0) * 5.0
+                withAnimation(.spring()) {
+                    glassSettings.offsetX = 60 + jitter
+                    glassSettings.offsetY = 100 + jitter
+                    glassSettings.extraWidth = 0
+                    glassSettings.extraHeight = 0
+                    liveDragOffset = .zero
+                    liveExtraSize = .zero
+                }
+            }
+        }
+    }
+
+    // MARK: - Drop handling
+
+    private func handleDrop(for item: ToDoItem, translation: CGFloat) {
+        guard let fromIndex = store.items.firstIndex(where: { $0.id == item.id }),
+              let currentFrame = rowFrames[item.id] else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                draggingItemId = nil
+                dragYOffset = 0
+            }
+            return
+        }
+
+        let dropMidY = currentFrame.midY + translation
+
+        // Count how many rows have their center above the drop point
+        var targetIndex = 0
+        for storeItem in store.items {
+            if let frame = rowFrames[storeItem.id], dropMidY > frame.midY {
+                targetIndex += 1
+            }
+        }
+        targetIndex = max(0, min(store.items.count, targetIndex))
+
+        withAnimation(.easeInOut(duration: 0.25)) {
+            // Only move if target differs from current position
+            if fromIndex != targetIndex && fromIndex + 1 != targetIndex {
+                store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetIndex)
+            }
+            draggingItemId = nil
+            dragYOffset = 0
+        }
     }
 }
 

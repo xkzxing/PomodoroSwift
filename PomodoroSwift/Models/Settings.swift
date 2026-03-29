@@ -7,6 +7,16 @@ import SwiftUI
 import Combine
 import AppKit
 
+struct ToDoPanel: Identifiable, Codable, Equatable {
+    var id: UUID
+    var title: String
+
+    init(id: UUID = UUID(), title: String = "To-Do") {
+        self.id = id
+        self.title = title
+    }
+}
+
 enum CampfirePreset: String, CaseIterable {
     case cozyFireplace = "cozy"
     case cracklingCampfire = "crackling"
@@ -124,9 +134,13 @@ class Settings: ObservableObject {
         }
     }
 
-    @Published var glassButtonFontDark: Bool {
+    // Removed unused phantom variable glassButtonFontDark
+    
+    @Published var todoPanels: [ToDoPanel] {
         didSet {
-            UserDefaults.standard.set(glassButtonFontDark, forKey: "glassButtonFontDark")
+            if let data = try? JSONEncoder().encode(todoPanels) {
+                UserDefaults.standard.set(data, forKey: "todoPanels")
+            }
         }
     }
     
@@ -249,12 +263,16 @@ class Settings: ObservableObject {
             ? UserDefaults.standard.double(forKey: "glassTintOpacity") 
             : 0.15
         self.glassInteractive = UserDefaults.standard.bool(forKey: "glassInteractive")
-        self.glassButtonFontDark = UserDefaults.standard.object(forKey: "glassButtonFontDark") != nil
-            ? UserDefaults.standard.bool(forKey: "glassButtonFontDark")
-            : false
         self.sidebarDarkMode = UserDefaults.standard.object(forKey: "sidebarDarkMode") == nil
             ? true
             : UserDefaults.standard.bool(forKey: "sidebarDarkMode")
+        
+        if let data = UserDefaults.standard.data(forKey: "todoPanels"),
+           let decoded = try? JSONDecoder().decode([ToDoPanel].self, from: data) {
+            self.todoPanels = decoded
+        } else {
+            self.todoPanels = [ToDoPanel(title: "To-Do")]
+        }
         
         // Load white noise settings
         self.whiteNoiseEnabled = UserDefaults.standard.bool(forKey: "whiteNoiseEnabled")

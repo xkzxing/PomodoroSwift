@@ -25,6 +25,11 @@ struct ContentView: View {
         ))
     }
     
+    /// Global resolved font color based on user setting
+    private var fontColor: Color {
+        settings.sidebarDarkMode ? .white : .black
+    }
+    
     var body: some View {
         ZStack(alignment: .leading) {
             // Main Content
@@ -43,7 +48,7 @@ struct ContentView: View {
                             if timer.currentMode == .shortBreak || timer.currentMode == .longBreak {
                                 Text("Break")
                                     .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.7))
+                                    .foregroundStyle(fontColor.opacity(0.7))
                                     .padding(.bottom, 4)
                             }
                             
@@ -52,7 +57,8 @@ struct ContentView: View {
                             TimerView(
                                 time: timer.formattedTime,
                                 isCompleted: timer.isCompleted,
-                                nsFont: settings.selectedNSFont
+                                nsFont: settings.selectedNSFont,
+                                fontDark: !settings.sidebarDarkMode
                             )
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)
@@ -103,7 +109,7 @@ struct ContentView: View {
                         
                         // Time Selector (Pinned to Window Bottom)
                         if !timer.isRunning && !timer.isCompleted && timer.currentMode == .work {
-                            TimeSelector(selectedTime: $settings.selectedTime)
+                            TimeSelector(selectedTime: $settings.selectedTime, fontDark: !settings.sidebarDarkMode)
                                 .onChange(of: settings.selectedTime) { oldValue, newValue in
                                     timer.updateTime(
                                         workMinutes: newValue,
@@ -117,16 +123,9 @@ struct ContentView: View {
                                 .allowsHitTesting(true)
                         }
 
-                        // To-Do Panel (pinned bottom, above TimeSelector)
+                        // To-Do Panels (pinned bottom, above TimeSelector)
                         let bottomPadding: CGFloat = (!timer.isRunning && !timer.isCompleted && timer.currentMode == .work) ? 100 : 16
-                        // Available height below the safe area (where Start button lives)
-                        let todoMaxHeight = max(geometry.size.height - safeAreaHeight - bottomPadding, 60)
-                        VStack {
-                            Spacer()
-                            ToDoView(glassEffect: glassStyle, listMaxHeight: max(todoMaxHeight - 100, 180))
-                                .padding(.bottom, bottomPadding)
-                        }
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        todoPanelsLayer(geometry: geometry, bottomPadding: bottomPadding, glassStyle: glassStyle)
                     }
                     .animation(.easeInOut(duration: 0.5), value: timer.isRunning)
                     .animation(.easeInOut(duration: 0.5), value: timer.isCompleted)
@@ -158,7 +157,7 @@ struct ContentView: View {
                     Text("Settings")
                         .font(.title2)
                         .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(fontColor)
                     
                     Spacer()
                     
@@ -169,7 +168,7 @@ struct ContentView: View {
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 24))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(fontColor.opacity(0.6))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -203,7 +202,7 @@ struct ContentView: View {
                 }) {
                     Image(systemName: "sidebar.left")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(fontColor)
                         .frame(width: 36, height: 36)
                         .contentShape(Rectangle())
                 }
@@ -212,6 +211,7 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(.clear)
                         .glassEffect(glassStyle)
+                        .id(settings.sidebarDarkMode) // Force recreation on mode change
                 )
                 .scaleEffect(isSidebarTogglePressed ? 0.95 : (isSidebarToggleHovered ? 1.05 : 1.0))
                 .opacity(isSidebarTogglePressed ? 0.9 : 1.0)
@@ -342,6 +342,14 @@ struct ContentView: View {
             } else if let error = error {
                 print("Notification permission error: \(error.localizedDescription)")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func todoPanelsLayer(geometry: GeometryProxy, bottomPadding: CGFloat, glassStyle: Glass) -> some View {
+        ForEach(settings.todoPanels) { panel in
+            ToDoView(panel: panel, glassEffect: glassStyle, listMaxHeight: 180)
+                .environmentObject(settings)
         }
     }
 }

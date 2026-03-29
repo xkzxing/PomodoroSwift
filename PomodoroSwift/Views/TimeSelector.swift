@@ -8,6 +8,7 @@ import SwiftUI
 
 struct TimeSelector: View {
     @Binding var selectedTime: Int
+    let fontDark: Bool
     @State private var dragOffset: CGFloat = 0
     @State private var velocity: CGFloat = 0
     @State private var viewWidth: CGFloat = 800
@@ -32,7 +33,8 @@ struct TimeSelector: View {
                     ForEach(times, id: \.self) { time in
                         TimeOptionView(
                             time: time,
-                            isSelected: selectedTime == time
+                            isSelected: selectedTime == time,
+                            fontDark: fontDark
                         )
                         .frame(width: itemWidth)
                         .onTapGesture {
@@ -128,6 +130,7 @@ struct TimeSelector: View {
 struct TimeOptionView: View {
     let time: Int
     let isSelected: Bool
+    let fontDark: Bool
     
     var body: some View {
         VStack(spacing: 4) {
@@ -149,6 +152,6 @@ struct TimeOptionView: View {
 #Preview {
     ZStack {
         Color.black
-        TimeSelector(selectedTime: .constant(25))
+        TimeSelector(selectedTime: .constant(25), fontDark: false)
     }
 }

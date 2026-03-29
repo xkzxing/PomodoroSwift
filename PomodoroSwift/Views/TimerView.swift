@@ -9,6 +9,7 @@ struct TimerView: View {
     let time: String
     let isCompleted: Bool
     let nsFont: NSFont
+    let fontDark: Bool
     
     var body: some View {
         Text(time)
@@ -28,7 +29,8 @@ struct TimerView: View {
         TimerView(
             time: "25:00",
             isCompleted: false,
-            nsFont: NSFont(name: "Helvetica Neue", size: 120) ?? NSFont.systemFont(ofSize: 120)
+            nsFont: NSFont(name: "Helvetica Neue", size: 120) ?? NSFont.systemFont(ofSize: 120),
+            fontDark: false
         )
     }
 }
