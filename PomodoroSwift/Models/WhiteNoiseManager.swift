@@ -2,12 +2,7 @@
 //  WhiteNoiseManager.swift
 //  PomodoroSwift
 //
-//  Generates white, pink, brown, campfire, or "cozy" rain noise using AVAudioEngine.
-//  Uses a Hybrid "Source -> Player" Strategy for minimum energy:
-//  1. AVAudioSourceNode (Real-Time): Provides instant start and parameter feedback.
-//     - Kept alive but disconnected when not needed to save energy.
-//  2. AVAudioPlayerNode (Buffer Loop): Provides lowest possible energy usage (native C++ loop).
-//  3. Hot Swap: On parameter change, reconnect SourceNode (RT) -> Generate New Buffer -> Switch to PlayerNode.
+//  Generates white, pink, brown, rain, and campfire noise using AVAudioEngine.
 //
 
 import AVFoundation
@@ -42,17 +37,24 @@ class AudioState {
     
     // Brown noise filter state
     var brownLastOutput: Float = 0.0
+    var brownLastInput: Float = 0.0
+    var brownDCBlock: Float = 0.0
     
     // Rain state (Multi-Layer)
     var rainRumbleLP: Float = 0.0
     var rainHissLP: Float = 0.0
     var rainHissHP: Float = 0.0 // State for High-Pass filter
     var rainDropletFilter: Float = 0.0
+    var rainDropletFast: Float = 0.0
+    var rainDropletSlow: Float = 0.0
+    var rainAirLP: Float = 0.0
     var rainLFOPhase: Float = 0.0
     
     // Campfire state
     var fireRumble: Float = 0.0
     var fireCrackleLP: Float = 0.0
+    var fireAirLP: Float = 0.0
+    var fireDrift: Float = 0.0
     var resLo1: Float = 0.0, resLo2: Float = 0.0
     var resMid1: Float = 0.0, resMid2: Float = 0.0
     var resHi1: Float = 0.0, resHi2: Float = 0.0
@@ -65,6 +67,7 @@ class AudioState {
     
     var fireLFOPhase: Float = 0.0
     var fireIntensity: Float = 1.0
+    var snapEnvelope: Float = 0.0
     
     var burstCountdown: Float = 0.0
     var burstRemaining: Int = 0
@@ -91,30 +94,21 @@ class WhiteNoiseManager: ObservableObject {
     @Published var isPlaying = false
     
     private var audioEngine: AVAudioEngine?
-    private var sourceNode: AVAudioSourceNode?    // Real-Time (Interactive / Loading)
-    private var playerNode: AVAudioPlayerNode?    // Efficient Loop (Steady State)
+    private var playerNode: AVAudioPlayerNode?
+    private var activeLoopBuffer: AVAudioPCMBuffer?
+    private var activeBufferSignature: String?
     
-    // Real-Time State (Held here to update params live)
-    private var rtState: AudioState?
-    
-    // Generation Control
-    private var currentGenerationID: Int = 0
-    private let generationLock = NSLock()
-    
-    // Caching
-    private var cachedBuffer: AVAudioPCMBuffer?
-    private var cachedNoiseType: NoiseType = .white
-    
-    // Background generation queue
+    // Background generation control
     private let bufferQueue = DispatchQueue(label: "noise.buffer.generator", qos: .userInitiated)
+    private let generationLock = NSLock()
+    private var generationID: Int = 0
     
     // Settings
     private var currentNoiseType: NoiseType = .white
     private var currentVolume: Float = 0.3
     private var currentSampleRate: Double = 48000.0
-    
-    // Config
-    private let loopDuration: Double = 60.0
+    private var channelCount: AVAudioChannelCount = 1
+    private let loopDuration: Double = 24.0
     
     // Campfire Params
     private var cfParams: (rumble: Float, texture: Float, woodyDensity: Float, woodyLevel: Float, snapDensity: Float, snapLevel: Float, rumbleSmooth: Float, textureSmooth: Float, freqLo: Float, freqMid: Float, freqHi: Float, resonance: Float, burstProb: Float) = (0.4, 0.3, 0.3, 0.5, 0.3, 0.35, 0.95, 0.6, 300.0, 900.0, 2500.0, 0.5, 0.12)
@@ -122,251 +116,174 @@ class WhiteNoiseManager: ObservableObject {
     func play() {
         guard !isPlaying else { return }
         
-        setupEngine()
+        setupEngineIfNeeded()
         
         do {
-            try audioEngine?.start()
+            if audioEngine?.isRunning != true {
+                try audioEngine?.start()
+            }
             isPlaying = true
-            
-            // Start Logic
-            if let cache = cachedBuffer, cachedNoiseType == currentNoiseType {
-                // Hot Start: Reuse Cache
-                startPlayerNode(with: cache)
+            if let activeLoopBuffer, activeBufferSignature == currentBufferSignature() {
+                try scheduleBufferForPlayback(activeLoopBuffer)
             } else {
-                // Cold Start: RT -> Gen -> Player
-                startSourceNode()
-                dispatchBufferGeneration()
+                requestBufferRegeneration()
             }
         } catch {
             print("WhiteNoiseManager: Failed to start audio engine: \(error)")
+            teardownEngine()
+            isPlaying = false
         }
     }
     
     func stop() {
-        guard isPlaying else { return }
-        
-        // Fade out
-        if let mixer = audioEngine?.mainMixerNode {
-            fadeVolume(mixer: mixer, to: 0.0, duration: 0.5)
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            self?.playerNode?.stop()
-            self?.audioEngine?.stop()
-            self?.audioEngine = nil
-            self?.sourceNode = nil
-            self?.playerNode = nil
-            self?.rtState = nil
-            self?.isPlaying = false
-        }
+        guard isPlaying || audioEngine != nil else { return }
+        invalidatePendingGeneration()
+        isPlaying = false
+        playerNode?.stop()
+        playerNode?.reset()
+        teardownEngine()
     }
     
     func setVolume(_ newVolume: Double) {
         currentVolume = Float(newVolume)
-        if isPlaying, let mixer = audioEngine?.mainMixerNode {
-            mixer.outputVolume = currentVolume
+        if isPlaying {
+            playerNode?.volume = currentVolume
         }
     }
     
     func setCampfireParams(rumble: Double, texture: Double, woodyDensity: Double, woodyLevel: Double, snapDensity: Double, snapLevel: Double, rumbleSmooth: Double, textureSmooth: Double, freqLo: Double, freqMid: Double, freqHi: Double, resonance: Double, burstProb: Double) {
-        
-        // Update local params
         cfParams = (
             Float(rumble), Float(texture), Float(woodyDensity), Float(woodyLevel),
             Float(snapDensity), Float(snapLevel), Float(rumbleSmooth), Float(textureSmooth),
             Float(freqLo), Float(freqMid), Float(freqHi), Float(resonance), Float(burstProb)
         )
-        
-        // Invalidate cache
-        cachedBuffer = nil
-        
-        // If playing, apply update live
-        if isPlaying {
-            // 1. Update RT State
-            if let state = rtState {
-                applyParams(to: state)
-            }
-            
-            // 2. Switch to SourceNode (Instant Feedback)
-            startSourceNode()
-            
-            // 3. Increment ID to cancel/supersede pending generations
-            incrementGenerationID()
-            
-            // 4. Dispatch new low-energy buffer generation
-            dispatchBufferGeneration()
-        }
+        refreshPlaybackIfNeeded()
     }
     
     func setNoiseType(_ type: NoiseType) {
-        let wasPlaying = isPlaying
-        if wasPlaying {
-            currentNoiseType = type
-            setVolume(Double(currentVolume)) // Re-apply volume
-            
-            cachedBuffer = nil
-            cachedNoiseType = type
-            
-            if let state = rtState {
-                state.noiseType = type
-                // Reset specialized state on switch
-                state.rainRumbleLP = 0
-                state.rainHissLP = 0
-                state.rainHissHP = 0
-                state.rainLFOPhase = 0
-                applyParams(to: state)
-            }
-            
-            startSourceNode()
-            incrementGenerationID()
-            dispatchBufferGeneration()
-            
-        } else {
-            currentNoiseType = type
-            if type != cachedNoiseType {
-                cachedBuffer = nil
-                cachedNoiseType = type
-            }
-        }
+        currentNoiseType = type
+        refreshPlaybackIfNeeded()
     }
     
     // MARK: - Engine Setup
     
-    private func setupEngine() {
-        let engine = AVAudioEngine()
-        audioEngine = engine
+    private func setupEngineIfNeeded() {
+        if audioEngine != nil {
+            return
+        }
         
+        let engine = AVAudioEngine()
+        let playerNode = AVAudioPlayerNode()
         let mainMixer = engine.mainMixerNode
         let outputFormat = mainMixer.outputFormat(forBus: 0)
-        currentSampleRate = outputFormat.sampleRate
-        
-        // Set Volume
-        mainMixer.outputVolume = currentVolume
-        
-        // 1. Source Node (RT)
-        let format = AVAudioFormat(standardFormatWithSampleRate: currentSampleRate, channels: 1)!
-        
-        let state = AudioState()
-        state.noiseType = currentNoiseType
-        applyParams(to: state)
-        self.rtState = state
-        
-        sourceNode = AVAudioSourceNode { _, _, frameCount, audioBufferList -> OSStatus in
-            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            for frame in 0..<Int(frameCount) {
-                let sample = WhiteNoiseManager.generateSample(state: state, sampleRate: Float(outputFormat.sampleRate))
-                for buffer in ablPointer {
-                    let buf = UnsafeMutableBufferPointer<Float>(buffer)
-                    buf[frame] = sample
-                }
-            }
-            return noErr
-        }
-        
-        // 2. Player Node (Loop)
-        playerNode = AVAudioPlayerNode()
-        
-        guard let sourceNode = sourceNode, let playerNode = playerNode else { return }
-        
-        engine.attach(sourceNode)
+        currentSampleRate = outputFormat.sampleRate > 0 ? outputFormat.sampleRate : 48_000.0
+        channelCount = max(1, outputFormat.channelCount)
+
+        let format = AVAudioFormat(standardFormatWithSampleRate: currentSampleRate, channels: channelCount)!
         engine.attach(playerNode)
-        
-        // Initial Connection: Connect both. We will detach/disconnect source when not needed.
-        engine.connect(sourceNode, to: mainMixer, format: format)
         engine.connect(playerNode, to: mainMixer, format: format)
-        
         engine.prepare()
+        
+        self.audioEngine = engine
+        self.playerNode = playerNode
     }
     
-    // MARK: - Playback Logic
-    
-    private func startSourceNode() {
-        guard let engine = audioEngine, let src = sourceNode, let mixer = audioEngine?.mainMixerNode else { return }
-        
-        let internalFormat = AVAudioFormat(standardFormatWithSampleRate: currentSampleRate, channels: 1)!
-        
-        // Just reconnect.
-        engine.disconnectNodeOutput(src)
-        engine.connect(src, to: mixer, format: internalFormat)
-        
-        playerNode?.volume = 0 
-        playerNode?.stop() 
+    private func teardownEngine() {
+        audioEngine?.stop()
+        audioEngine = nil
+        playerNode = nil
     }
     
-    private func startPlayerNode(with buffer: AVAudioPCMBuffer) {
-        guard let engine = audioEngine, let player = playerNode else { return }
-        
-        // 1. Schedule Buffer
-        player.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
-        player.volume = 1.0 // Reset volume
-        player.play()
-        
-        // 2. Wait a tiny bit (crossfade simulation), then disconnect SourceNode
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self, let src = self.sourceNode else { return }
-            if self.playerNode?.isPlaying == true {
-                engine.disconnectNodeOutput(src)
-            }
+    private func refreshPlaybackIfNeeded() {
+        guard isPlaying else { return }
+        requestBufferRegeneration()
+    }
+    
+    private func scheduleBufferForPlayback(_ buffer: AVAudioPCMBuffer) throws {
+        guard let playerNode else {
+            throw NSError(domain: "WhiteNoiseManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Player node not ready"])
         }
+        playerNode.stop()
+        playerNode.reset()
+        playerNode.scheduleBuffer(buffer, at: nil, options: .loops, completionHandler: nil)
+        if audioEngine?.isRunning != true {
+            try audioEngine?.start()
+        }
+        playerNode.volume = currentVolume
+        playerNode.play()
     }
     
-    // MARK: - Buffer Generation
-    
-    private func incrementGenerationID() {
-        generationLock.lock()
-        currentGenerationID += 1
-        generationLock.unlock()
-    }
-    
-    private func getGenerationID() -> Int {
-        generationLock.lock()
-        defer { generationLock.unlock() }
-        return currentGenerationID
-    }
-    
-    private func dispatchBufferGeneration() {
-        let sr = currentSampleRate
-        let type = currentNoiseType
-        let genID = getGenerationID()
+    private func requestBufferRegeneration() {
+        guard audioEngine != nil, playerNode != nil else { return }
         
-        // Background State (Clone Settings)
-        let bgState = AudioState()
-        bgState.noiseType = type
-        applyParams(to: bgState)
+        let generation = nextGenerationID()
+        let sampleRate = currentSampleRate
+        let channelCount = self.channelCount
+        let noiseType = currentNoiseType
+        let params = cfParams
+        let targetSignature = buildBufferSignature(
+            noiseType: noiseType,
+            sampleRate: sampleRate,
+            channelCount: channelCount,
+            params: params
+        )
         
         bufferQueue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
+            guard self.isGenerationCurrent(generation) else { return }
             
-            // Generate Buffer
-            if self.getGenerationID() != genID { return }
+            guard let buffer = self.generateLoopBuffer(
+                duration: self.loopDuration,
+                sampleRate: sampleRate,
+                channelCount: channelCount,
+                noiseType: noiseType,
+                params: params
+            ) else { return }
             
-            guard let buffer = self.generatePCMBuffer(state: bgState, sampleRate: sr, duration: self.loopDuration) else { return }
-            
-            if self.getGenerationID() != genID { return }
-            
-            // Update Cache & Switch to Player
-            DispatchQueue.main.async {
-                // Final check on main thread
-                if self.getGenerationID() == genID {
-                    self.cachedBuffer = buffer
-                    self.cachedNoiseType = type
-                    if self.isPlaying {
-                        self.startPlayerNode(with: buffer)
-                    }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.isGenerationCurrent(generation), self.isPlaying else { return }
+                
+                self.activeLoopBuffer = buffer
+                self.activeBufferSignature = targetSignature
+                
+                do {
+                    try self.scheduleBufferForPlayback(buffer)
+                } catch {
+                    print("WhiteNoiseManager: Failed to swap loop buffer: \(error)")
+                    self.stop()
                 }
             }
         }
     }
     
-    private func generatePCMBuffer(state: AudioState, sampleRate: Double, duration: Double) -> AVAudioPCMBuffer? {
+    private func generateLoopBuffer(
+        duration: Double,
+        sampleRate: Double,
+        channelCount: AVAudioChannelCount,
+        noiseType: NoiseType,
+        params: (rumble: Float, texture: Float, woodyDensity: Float, woodyLevel: Float, snapDensity: Float, snapLevel: Float, rumbleSmooth: Float, textureSmooth: Float, freqLo: Float, freqMid: Float, freqHi: Float, resonance: Float, burstProb: Float)
+    ) -> AVAudioPCMBuffer? {
+        guard duration > 0 else { return nil }
         let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!, frameCapacity: frameCount) else { return nil }
+        guard frameCount > 0 else { return nil }
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
+              let channelData = buffer.floatChannelData else {
+            return nil
+        }
         
         buffer.frameLength = frameCount
-        guard let channelData = buffer.floatChannelData?[0] else { return nil }
+        var channelStates: [AudioState] = (0..<Int(channelCount)).map { _ in
+            makeAudioState(noiseType: noiseType, params: params)
+        }
+        let sampleRate = Float(sampleRate)
         
-        for i in 0..<Int(frameCount) {
-            channelData[i] = WhiteNoiseManager.generateSample(state: state, sampleRate: Float(sampleRate))
+        for frame in 0..<Int(frameCount) {
+            for channel in 0..<Int(channelCount) {
+                let sample = WhiteNoiseManager.generateSample(state: channelStates[channel], sampleRate: sampleRate)
+                channelData[channel][frame] = sample
+            }
         }
         
         return buffer
@@ -374,33 +291,87 @@ class WhiteNoiseManager: ObservableObject {
     
     // MARK: - Helpers
     
-    private func fadeVolume(mixer: AVAudioMixerNode, to endVolume: Float, duration: TimeInterval) {
-        let startVolume = mixer.outputVolume
-        let steps = 10
-        let stepDuration = duration / Double(steps)
-        let stepValue = (endVolume - startVolume) / Float(steps)
-        
-        for i in 1...steps {
-            DispatchQueue.main.asyncAfter(deadline: .now() + stepDuration * Double(i)) {
-                mixer.outputVolume = startVolume + stepValue * Float(i)
-            }
-        }
+    private func makeAudioState(
+        noiseType: NoiseType,
+        params: (rumble: Float, texture: Float, woodyDensity: Float, woodyLevel: Float, snapDensity: Float, snapLevel: Float, rumbleSmooth: Float, textureSmooth: Float, freqLo: Float, freqMid: Float, freqHi: Float, resonance: Float, burstProb: Float)
+    ) -> AudioState {
+        let state = AudioState()
+        state.noiseType = noiseType
+        applyParams(to: state, params: params)
+        return state
     }
     
-    private func applyParams(to state: AudioState) {
-        state.cfRumbleMix = cfParams.rumble
-        state.cfTextureMix = cfParams.texture
-        state.cfWoodyDensity = cfParams.woodyDensity
-        state.cfWoodyLevel = cfParams.woodyLevel
-        state.cfSnapDensity = cfParams.snapDensity
-        state.cfSnapLevel = cfParams.snapLevel
-        state.cfRumbleSmooth = cfParams.rumbleSmooth
-        state.cfTextureSmooth = cfParams.textureSmooth
-        state.cfFreqLo = cfParams.freqLo
-        state.cfFreqMid = cfParams.freqMid
-        state.cfFreqHi = cfParams.freqHi
-        state.cfResonance = cfParams.resonance
-        state.cfBurstProb = cfParams.burstProb
+    private func applyParams(
+        to state: AudioState,
+        params: (rumble: Float, texture: Float, woodyDensity: Float, woodyLevel: Float, snapDensity: Float, snapLevel: Float, rumbleSmooth: Float, textureSmooth: Float, freqLo: Float, freqMid: Float, freqHi: Float, resonance: Float, burstProb: Float)
+    ) {
+        state.cfRumbleMix = params.rumble
+        state.cfTextureMix = params.texture
+        state.cfWoodyDensity = params.woodyDensity
+        state.cfWoodyLevel = params.woodyLevel
+        state.cfSnapDensity = params.snapDensity
+        state.cfSnapLevel = params.snapLevel
+        state.cfRumbleSmooth = params.rumbleSmooth
+        state.cfTextureSmooth = params.textureSmooth
+        state.cfFreqLo = params.freqLo
+        state.cfFreqMid = params.freqMid
+        state.cfFreqHi = params.freqHi
+        state.cfResonance = params.resonance
+        state.cfBurstProb = params.burstProb
+    }
+    
+    private func currentBufferSignature() -> String {
+        buildBufferSignature(
+            noiseType: currentNoiseType,
+            sampleRate: currentSampleRate,
+            channelCount: channelCount,
+            params: cfParams
+        )
+    }
+    
+    private func buildBufferSignature(
+        noiseType: NoiseType,
+        sampleRate: Double,
+        channelCount: AVAudioChannelCount,
+        params: (rumble: Float, texture: Float, woodyDensity: Float, woodyLevel: Float, snapDensity: Float, snapLevel: Float, rumbleSmooth: Float, textureSmooth: Float, freqLo: Float, freqMid: Float, freqHi: Float, resonance: Float, burstProb: Float)
+    ) -> String {
+        [
+            noiseType.rawValue,
+            String(format: "%.4f", sampleRate),
+            String(channelCount),
+            String(format: "%.4f", params.rumble),
+            String(format: "%.4f", params.texture),
+            String(format: "%.4f", params.woodyDensity),
+            String(format: "%.4f", params.woodyLevel),
+            String(format: "%.4f", params.snapDensity),
+            String(format: "%.4f", params.snapLevel),
+            String(format: "%.4f", params.rumbleSmooth),
+            String(format: "%.4f", params.textureSmooth),
+            String(format: "%.4f", params.freqLo),
+            String(format: "%.4f", params.freqMid),
+            String(format: "%.4f", params.freqHi),
+            String(format: "%.4f", params.resonance),
+            String(format: "%.4f", params.burstProb)
+        ].joined(separator: "|")
+    }
+    
+    private func nextGenerationID() -> Int {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        generationID += 1
+        return generationID
+    }
+    
+    private func invalidatePendingGeneration() {
+        generationLock.lock()
+        generationID += 1
+        generationLock.unlock()
+    }
+    
+    private func isGenerationCurrent(_ id: Int) -> Bool {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        return generationID == id
     }
     
     // MARK: - Noise Algorithms
@@ -408,11 +379,11 @@ class WhiteNoiseManager: ObservableObject {
     static private func generateSample(state: AudioState, sampleRate: Float) -> Float {
         switch state.noiseType {
         case .white:
-            return generateWhiteNoise()
+            return softLimit(generateWhiteRaw() * 0.34)
         case .pink:
-            return generatePinkNoise(state: state)
+            return softLimit(generatePinkRaw(state: state) * 0.50)
         case .brown:
-            return generateBrownNoise(state: state)
+            return softLimit(generateBrownRaw(state: state) * 0.58)
         case .rain:
             return generateRainNoise(state: state, sampleRate: sampleRate)
         case .campfire:
@@ -420,12 +391,17 @@ class WhiteNoiseManager: ObservableObject {
         }
     }
     
-    static private func generateWhiteNoise() -> Float {
+    static private func softLimit(_ value: Float) -> Float {
+        let scaled = value * 0.9
+        return scaled / (1.0 + abs(scaled))
+    }
+    
+    static private func generateWhiteRaw() -> Float {
         return Float.random(in: -1.0...1.0)
     }
     
-    static private func generatePinkNoise(state: AudioState) -> Float {
-        let white = Float.random(in: -1.0...1.0)
+    static private func generatePinkRaw(state: AudioState) -> Float {
+        let white = generateWhiteRaw()
         state.pinkIndex = (state.pinkIndex + 1) % (state.pinkRows.count)
         
         var k = state.pinkIndex
@@ -444,88 +420,90 @@ class WhiteNoiseManager: ObservableObject {
             state.pinkRows[numZeros] = newRandom
         }
         
-        let result = (state.pinkRunningSum + white) / Float(state.pinkRows.count + 1)
-        return result * 3.5
+        return (state.pinkRunningSum + white) / Float(state.pinkRows.count + 1)
     }
     
-    static private func generateBrownNoise(state: AudioState) -> Float {
-        let white = Float.random(in: -1.0...1.0)
-        state.brownLastOutput = (state.brownLastOutput + (0.02 * white)) / 1.02
-        return state.brownLastOutput * 3.5
+    static private func generateBrownRaw(state: AudioState) -> Float {
+        let white = generateWhiteRaw()
+        state.brownLastOutput = (state.brownLastOutput + (0.018 * white)) / 1.018
+        let dcBlocked = state.brownLastOutput - state.brownLastInput + 0.995 * state.brownDCBlock
+        state.brownLastInput = state.brownLastOutput
+        state.brownDCBlock = dcBlocked
+        return dcBlocked * 2.1
     }
     
     static private func generateRainNoise(state: AudioState, sampleRate: Float) -> Float {
-        // Multi-Layer Rain Algorithm
-        
-        // 1. RUMBLE: Deep Low-Frequency (Distant)
-        // Pink Noise -> LPF (300Hz)
-        let pink = generatePinkNoise(state: state)
-        let rumbleCoeff: Float = 0.05 // Aggressive LPF
+        let pink = generatePinkRaw(state: state)
+        let rumbleCoeff: Float = 0.02
         state.rainRumbleLP = state.rainRumbleLP + rumbleCoeff * (pink - state.rainRumbleLP)
         
-        // 2. HISS: Mid-Frequency (Texture)
-        // White Noise -> Bandpass (200Hz - 1000Hz)
-        // Implemented as LPF (1000Hz) -> HPF (200Hz)
-        let white = generateWhiteNoise()
-        let hissLPCoeff: Float = 0.15 // ~1000Hz
-        let hissHPCoeff: Float = 0.03 // ~200Hz
+        let white = generateWhiteRaw()
+        let hissLPCoeff: Float = 0.18
+        let hissHPCoeff: Float = 0.025
         
         state.rainHissLP = state.rainHissLP + hissLPCoeff * (white - state.rainHissLP)
         let bandPassedHiss = state.rainHissLP - state.rainHissHP
         state.rainHissHP = state.rainHissHP + hissHPCoeff * (bandPassedHiss - state.rainHissHP)
         
-        // 3. DROPLETS: Occasional High-Frequency Impacts
-        // Random impulses -> Short Decay -> Low volume
-        let dropProb: Float = 0.0003 // Low probability per sample
-        var droplet: Float = 0.0
-        
-        if Float.random(in: 0.0...1.0) < dropProb {
-            state.rainDropletFilter = Float.random(in: 0.3...0.6)
+        if Float.random(in: 0.0...1.0) < 0.00055 {
+            state.rainDropletFast += Float.random(in: 0.12...0.50)
         }
-        state.rainDropletFilter *= 0.9 // Short decay
-        droplet = state.rainDropletFilter * generateWhiteNoise() * 0.5
+        if Float.random(in: 0.0...1.0) < 0.00012 {
+            state.rainDropletSlow += Float.random(in: 0.08...0.35)
+        }
+        if Float.random(in: 0.0...1.0) < 0.00018 {
+            state.rainDropletFilter = Float.random(in: 0.20...0.45)
+        }
         
-        // 4. PRECIPITATION LFO: Wind Gusts
-        state.rainLFOPhase += 0.3 * 2.0 * .pi / sampleRate // Slow modulation
+        state.rainDropletFast *= 0.84
+        state.rainDropletSlow *= 0.975
+        state.rainDropletFilter *= 0.92
+        
+        let fastDrop = state.rainDropletFast * generateWhiteRaw() * 0.90
+        let slowDropSource = generateWhiteRaw() * 0.35 + state.rainRumbleLP * 0.65
+        let slowDrop = state.rainDropletSlow * slowDropSource
+        let midDrop = state.rainDropletFilter * generateWhiteRaw() * 0.55
+        
+        state.rainAirLP = state.rainAirLP + 0.004 * (generateWhiteRaw() - state.rainAirLP)
+        state.rainLFOPhase += 0.07 * 2.0 * .pi / sampleRate
         if state.rainLFOPhase > 2.0 * .pi { state.rainLFOPhase -= 2.0 * .pi }
-        let lfo = 0.8 + 0.2 * sin(state.rainLFOPhase)
+        let gust = 0.86 + 0.12 * sin(state.rainLFOPhase) + 0.04 * state.rainAirLP
         
-        // MIX
-        // Rumble is dominant (warmth). Hiss is background. Droplets are subtle.
-        let output = (state.rainRumbleLP * 5.0 * 0.70) +    // Rumble (Boosted because LPF attenuates power)
-                     (bandPassedHiss * 0.20) +              // Hiss (Quiet)
-                     (droplet * 0.10)                       // Droplets
+        let output =
+            (state.rainRumbleLP * 0.42) +
+            (bandPassedHiss * 0.38) +
+            (fastDrop * 0.18) +
+            (slowDrop * 0.16) +
+            (midDrop * 0.14)
         
-        return output * lfo * 2.0 // Master gain
+        return softLimit(output * gust * 1.35)
     }
     
     static private func generateCampfireNoise(state: AudioState, sampleRate: Float) -> Float {
-        // === LFO ===
-        state.fireLFOPhase += 0.2 * 2.0 * .pi / sampleRate
+        state.fireLFOPhase += 0.17 * 2.0 * .pi / sampleRate
         if state.fireLFOPhase > 2.0 * .pi { state.fireLFOPhase -= 2.0 * .pi }
-        state.fireIntensity = 1.0 + 0.15 * sin(state.fireLFOPhase)
+        state.fireDrift = state.fireDrift * 0.9996 + Float.random(in: -1.0...1.0) * 0.0006
+        let drift = max(0.82, min(1.22, 1.0 + state.fireDrift))
+        state.fireIntensity = (1.0 + 0.14 * sin(state.fireLFOPhase)) * drift
         
-        // === Rumble ===
-        let w1 = Float.random(in: -1.0...1.0)
-        let rumbleCoeff = 0.95 + state.cfRumbleSmooth * 0.049
+        let w1 = generateWhiteRaw()
+        let rumbleCoeff = 0.955 + state.cfRumbleSmooth * 0.043
         state.fireRumble = state.fireRumble * rumbleCoeff + w1 * (1.0 - rumbleCoeff)
-        let rumble = state.fireRumble * 3.5 * state.fireIntensity
+        let rumble = state.fireRumble * 2.8 * state.fireIntensity
         
-        // === Texture ===
-        let noise = Float.random(in: -1.0...1.0)
+        let noise = generateWhiteRaw()
         let squared = noise * abs(noise)
-        let texCoeff = 0.4 + state.cfTextureSmooth * 0.59
+        let texCoeff = 0.55 + state.cfTextureSmooth * 0.42
         state.fireCrackleLP = state.fireCrackleLP * texCoeff + squared * (1.0 - texCoeff)
-        let texture = state.fireCrackleLP * (0.8 + 0.2 * state.fireIntensity)
+        let texture = state.fireCrackleLP * (0.75 + 0.25 * state.fireIntensity)
         
-        // === Sizzle ===
-        let sizzleRaw = (noise - state.fireCrackleLP) * 0.5
-        let sizzle = sizzleRaw * max(0, state.fireIntensity - 0.8)
+        state.fireAirLP = state.fireAirLP + 0.03 * (noise - state.fireAirLP)
+        let emberAir = (noise - state.fireAirLP) * max(0, state.fireIntensity - 0.82) * 0.55
+        let sizzleRaw = (noise - state.fireCrackleLP) * 0.45
+        let sizzle = sizzleRaw * max(0, state.fireIntensity - 0.78)
         
-        // === Pops ===
         var impulse: Float = 0.0
-        let woodyRate = state.cfWoodyDensity * 10.0
-        
+        let woodyRate = state.cfWoodyDensity * 13.0
         var triggered = false
         
         if state.burstRemaining > 0 {
@@ -564,24 +542,30 @@ class WhiteNoiseManager: ObservableObject {
         let effRHi = state.resRandHi == 0 ? (0.80 + state.cfResonance * 0.19) : state.resRandHi
         
         let loFreq = state.cfFreqLo * state.freqRandLo
-        let loOut = impulse * 0.4 + 2.0 * effRLo * cos(2.0 * .pi * loFreq / sampleRate) * state.resLo1 - effRLo * effRLo * state.resLo2
+        let loOut = impulse * 0.35 + 2.0 * effRLo * cos(2.0 * .pi * loFreq / sampleRate) * state.resLo1 - effRLo * effRLo * state.resLo2
         state.resLo2 = state.resLo1
         state.resLo1 = loOut
         
         let midFreq = state.cfFreqMid * state.freqRandMid
-        let midOut = impulse * 0.5 + 2.0 * effRMid * cos(2.0 * .pi * midFreq / sampleRate) * state.resMid1 - effRMid * effRMid * state.resMid2
+        let midOut = impulse * 0.45 + 2.0 * effRMid * cos(2.0 * .pi * midFreq / sampleRate) * state.resMid1 - effRMid * effRMid * state.resMid2
         state.resMid2 = state.resMid1
         state.resMid1 = midOut
         
         let hiFreq = state.cfFreqHi * state.freqRandHi
-        let hiOut = impulse * 0.3 + 2.0 * effRHi * cos(2.0 * .pi * hiFreq / sampleRate) * state.resHi1 - effRHi * effRHi * state.resHi2
+        let hiOut = impulse * 0.25 + 2.0 * effRHi * cos(2.0 * .pi * hiFreq / sampleRate) * state.resHi1 - effRHi * effRHi * state.resHi2
         state.resHi2 = state.resHi1
         state.resHi1 = hiOut
         
         let woodyPop = loOut * 0.35 + midOut * 0.4 + hiOut * 0.25
+        let mixed =
+            rumble * state.cfRumbleMix +
+            texture * state.cfTextureMix +
+            sizzle * (state.cfTextureMix * 0.35) +
+            emberAir * 0.22 +
+            woodyPop * state.cfWoodyLevel +
+            state.sharpSnap(sampleRate: sampleRate) * state.cfSnapLevel
         
-        // === Mix ===
-        return rumble * state.cfRumbleMix + texture * state.cfTextureMix + sizzle * (state.cfTextureMix * 0.5) + woodyPop * state.cfWoodyLevel + state.sharpSnap(sampleRate: sampleRate) * state.cfSnapLevel
+        return softLimit(mixed * 1.15)
     }
 }
 
@@ -590,8 +574,9 @@ extension AudioState {
         let snapRate = cfSnapDensity * 5.0
         let snapProb = snapRate / sampleRate
         if Float.random(in: 0.0...1.0) < snapProb {
-            return Float.random(in: 0.4...0.8) * (Bool.random() ? 1.0 : -1.0)
+            snapEnvelope = max(snapEnvelope, Float.random(in: 0.35...0.85))
         }
-        return 0.0
+        snapEnvelope *= 0.86
+        return snapEnvelope * Float.random(in: -1.0...1.0)
     }
 }

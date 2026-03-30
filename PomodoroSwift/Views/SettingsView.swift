@@ -80,6 +80,10 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 
                 if settings.whiteNoiseEnabled {
+                    Toggle("Only During Timer", isOn: $settings.whiteNoiseOnlyWhenTimerRunning)
+                        .toggleStyle(.switch)
+                        .foregroundStyle(.secondary)
+
                     // Noise Type Picker
                     HStack {
                         Text("Sound Type")
@@ -164,7 +168,7 @@ struct SettingsView: View {
 
                             Button(action: {
                                 NotificationCenter.default.post(
-                                    name: NSNotification.Name("resetToDoPanel"),
+                                    name: .resetToDoPanel,
                                     object: nil,
                                     userInfo: ["panelId": panel.id]
                                 )

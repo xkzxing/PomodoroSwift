@@ -35,6 +35,8 @@ class PomodoroTimer: ObservableObject {
     private var workTime: Int
     private var breakTime: Int
     private var longBreakTime: Int
+    private var restartObserver: NSObjectProtocol?
+    private var appActiveObserver: NSObjectProtocol?
     
     // Wall-clock based timing
     private var startDate: Date?
@@ -42,9 +44,11 @@ class PomodoroTimer: ObservableObject {
     
     private let sessionsBeforeLongBreak = 4
     
-    static let notificationCategoryID = "POMODORO_COMPLETE"
+    static let workNotificationCategoryID = "POMODORO_WORK_COMPLETE"
+    static let breakNotificationCategoryID = "POMODORO_BREAK_COMPLETE"
     static let actionStartBreak = "START_BREAK"
     static let actionStartLongBreak = "START_LONG_BREAK"
+    static let actionStartFocus = "START_FOCUS"
     static let actionDismiss = "DISMISS"
     
     init(workMinutes: Int, breakMinutes: Int = 5, longBreakMinutes: Int = 15) {
@@ -64,11 +68,16 @@ class PomodoroTimer: ObservableObject {
         delayedRestartTimer?.invalidate()
         
         // Remove notification observers
-        NotificationCenter.default.removeObserver(self)
+        if let restartObserver = restartObserver {
+            NotificationCenter.default.removeObserver(restartObserver)
+        }
+        if let appActiveObserver = appActiveObserver {
+            NotificationCenter.default.removeObserver(appActiveObserver)
+        }
     }
     
     private func setupAppActiveObserver() {
-        NotificationCenter.default.addObserver(
+        appActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
@@ -89,8 +98,8 @@ class PomodoroTimer: ObservableObject {
     }
     
     private func setupNotificationObserver() {
-        NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("RestartPomodoroTimer"),
+        restartObserver = NotificationCenter.default.addObserver(
+            forName: .restartPomodoroTimer,
             object: nil,
             queue: .main
         ) { [weak self] notification in
@@ -101,6 +110,8 @@ class PomodoroTimer: ObservableObject {
                     self.startBreak(long: false)
                 case "longBreak":
                     self.startBreak(long: true)
+                case "focus":
+                    self.startNextMode()
                 default:
                     self.startNextMode()
                 }
@@ -128,14 +139,27 @@ class PomodoroTimer: ObservableObject {
             options: []
         )
         
-        let category = UNNotificationCategory(
-            identifier: Self.notificationCategoryID,
+        let startFocus = UNNotificationAction(
+            identifier: Self.actionStartFocus,
+            title: "Start Focus Session",
+            options: [.foreground]
+        )
+        
+        let workCategory = UNNotificationCategory(
+            identifier: Self.workNotificationCategoryID,
             actions: [startBreak, startLongBreak, dismiss],
             intentIdentifiers: [],
             options: []
         )
         
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        let breakCategory = UNNotificationCategory(
+            identifier: Self.breakNotificationCategoryID,
+            actions: [startFocus, dismiss],
+            intentIdentifiers: [],
+            options: []
+        )
+        
+        UNUserNotificationCenter.current().setNotificationCategories([workCategory, breakCategory])
     }
     
     func start() {
@@ -216,13 +240,14 @@ class PomodoroTimer: ObservableObject {
             } else {
                 content.body = "Great work! Time for a short break."
             }
+            content.categoryIdentifier = Self.workNotificationCategoryID
         case .shortBreak, .longBreak:
             content.title = "Break Complete!"
             content.body = "Ready to focus again?"
+            content.categoryIdentifier = Self.breakNotificationCategoryID
         }
         
         content.sound = .default
-        content.categoryIdentifier = Self.notificationCategoryID
         
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

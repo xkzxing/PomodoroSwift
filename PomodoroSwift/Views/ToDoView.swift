@@ -254,6 +254,16 @@ struct ToDoView: View {
     // Live drag/resize gestures (transient, added to persisted values)
     @State private var liveDragOffset: CGSize = .zero
     @State private var liveExtraSize: CGSize = .zero
+    @State private var panelOffsetX: Double = 0
+    @State private var panelOffsetY: Double = 0
+    @State private var panelExtraHeight: Double = 0
+    @State private var panelExtraWidth: Double = 0
+    @State private var didLoadPanelLayout = false
+    
+    private let basePanelWidth: Double = 280
+    private let minPanelWidth: Double = 200
+    private let defaultExtraWidth: Double = 0
+    private let defaultExtraHeight: Double = 0
 
     init(panel: ToDoPanel, glassEffect: Glass, listMaxHeight: CGFloat = 180) {
         self.panel = panel
@@ -267,19 +277,28 @@ struct ToDoView: View {
     private var effectiveGlass: Glass {
         glassSettings.useCustom ? glassSettings.buildGlass() : glassEffect
     }
+    
+    private var minExtraWidth: Double {
+        minPanelWidth - basePanelWidth
+    }
+    
+    private var minExtraHeight: Double {
+        Double(-listMaxHeight + 44)
+    }
+    
+    private func clampedExtraWidth(_ value: Double) -> Double {
+        max(value, minExtraWidth)
+    }
+    
+    private func clampedExtraHeight(_ value: Double) -> Double {
+        max(value, minExtraHeight)
+    }
 
     /// Calculates clamped delta width during drag to pin the left edge
     private var widthChangeDuringDrag: CGFloat {
-        let currentW = max(glassSettings.extraWidth, -160)
-        let newW = max(glassSettings.extraWidth + liveExtraSize.width, -160)
-        return newW - currentW
-    }
-
-    /// Calculates clamped delta height during drag to pin the top edge
-    private var heightChangeDuringDrag: CGFloat {
-        let currentH = max(glassSettings.extraHeight, -listMaxHeight + 44)
-        let newH = max(glassSettings.extraHeight + liveExtraSize.height, -listMaxHeight + 44)
-        return newH - currentH
+        let currentDisplayWidth = max(basePanelWidth + panelExtraWidth, minPanelWidth)
+        let newDisplayWidth = max(basePanelWidth + panelExtraWidth + Double(liveExtraSize.width), minPanelWidth)
+        return CGFloat(newDisplayWidth - currentDisplayWidth)
     }
 
     /// Resolved text color: follows global setting when not using custom glass
@@ -322,7 +341,7 @@ struct ToDoView: View {
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $showGlassPicker, arrowEdge: .top) {
-                    ToDoGlassPopover(glassSettings: glassSettings)
+                    ToDoGlassPopover(glassSettings: glassSettings, onResetLayout: resetPanelLayout)
                 }
 
                 // Chevron (tap to toggle expand/collapse)
@@ -348,10 +367,16 @@ struct ToDoView: View {
                         liveDragOffset = value.translation
                     }
                     .onEnded { value in
-                        glassSettings.offsetX += value.translation.width
-                        glassSettings.offsetY += value.translation.height
+                        panelOffsetX += Double(value.translation.width)
+                        panelOffsetY += Double(value.translation.height)
                         liveDragOffset = .zero
+                        persistPanelLayout()
                     }
+            )
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    resetPanelSize()
+                }
             )
             .onHover { hovering in
                 if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
@@ -362,7 +387,7 @@ struct ToDoView: View {
                 Divider().background(.white.opacity(0.15))
 
                 // Task list
-                let computedHeight = max(listMaxHeight + glassSettings.extraHeight + liveExtraSize.height, 44)
+                let computedHeight = max(listMaxHeight + CGFloat(panelExtraHeight) + liveExtraSize.height, 44)
                 ScrollView {
                     VStack(spacing: 0) {
                         ForEach(store.items) { item in
@@ -451,10 +476,17 @@ struct ToDoView: View {
                                     liveExtraSize = value.translation
                                 }
                                 .onEnded { value in
-                                    glassSettings.extraHeight = max(glassSettings.extraHeight + value.translation.height, -listMaxHeight + 44)
-                                    glassSettings.extraWidth = max(glassSettings.extraWidth + value.translation.width, -160)
+                                    let newExtraHeight = clampedExtraHeight(panelExtraHeight + Double(value.translation.height))
+                                    let oldDisplayExtraWidth = clampedExtraWidth(panelExtraWidth)
+                                    let newDisplayExtraWidth = clampedExtraWidth(panelExtraWidth + Double(value.translation.width))
+                                    let deltaWidth = newDisplayExtraWidth - oldDisplayExtraWidth
                                     
+                                    panelExtraHeight = newExtraHeight
+                                    panelExtraWidth = newDisplayExtraWidth
+                                    // Keep left edge fixed while size changes around the horizontal center anchor.
+                                    panelOffsetX += deltaWidth / 2
                                     liveExtraSize = .zero
+                                    persistPanelLayout()
                                 }
                         )
                         .onHover { hovering in
@@ -463,32 +495,81 @@ struct ToDoView: View {
                 }
             }
         }
-        .frame(width: max(280 + glassSettings.extraWidth + liveExtraSize.width, 200)) // Shrunk base width to 280
+        .frame(width: CGFloat(max(basePanelWidth + panelExtraWidth + Double(liveExtraSize.width), minPanelWidth))) // Shrunk base width to 280
         .contentShape(Rectangle())
         .background(.clear)
         .glassEffect(effectiveGlass, in: RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: -4)
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .offset(
-            x: glassSettings.offsetX + liveDragOffset.width,
-            y: glassSettings.offsetY + liveDragOffset.height
+            x: CGFloat(panelOffsetX) + liveDragOffset.width + widthChangeDuringDrag / 2,
+            y: CGFloat(panelOffsetY) + liveDragOffset.height
         )
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("resetToDoPanel"))) { notification in
+        .onAppear {
+            loadPanelLayoutIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .resetToDoPanel)) { notification in
             if let targetId = notification.userInfo?["panelId"] as? UUID, targetId == panel.id {
                 let jitter = Double(panel.id.uuidString.first?.hexDigitValue ?? 0) * 5.0
                 withAnimation(.spring()) {
-                    glassSettings.offsetX = 60 + jitter
-                    glassSettings.offsetY = 100 + jitter
-                    glassSettings.extraWidth = 0
-                    glassSettings.extraHeight = 0
+                    panelOffsetX = 60 + jitter
+                    panelOffsetY = 100 + jitter
+                    panelExtraWidth = defaultExtraWidth
+                    panelExtraHeight = defaultExtraHeight
                     liveDragOffset = .zero
                     liveExtraSize = .zero
                 }
+                persistPanelLayout()
             }
         }
     }
 
     // MARK: - Drop handling
+    
+    private func loadPanelLayoutIfNeeded() {
+        guard !didLoadPanelLayout else { return }
+        panelOffsetX = glassSettings.offsetX
+        panelOffsetY = glassSettings.offsetY
+        panelExtraHeight = clampedExtraHeight(glassSettings.extraHeight)
+        panelExtraWidth = clampedExtraWidth(glassSettings.extraWidth)
+        didLoadPanelLayout = true
+    }
+    
+    private func persistPanelLayout() {
+        if glassSettings.offsetX != panelOffsetX {
+            glassSettings.offsetX = panelOffsetX
+        }
+        if glassSettings.offsetY != panelOffsetY {
+            glassSettings.offsetY = panelOffsetY
+        }
+        if glassSettings.extraHeight != panelExtraHeight {
+            glassSettings.extraHeight = panelExtraHeight
+        }
+        if glassSettings.extraWidth != panelExtraWidth {
+            glassSettings.extraWidth = panelExtraWidth
+        }
+    }
+    
+    private func resetPanelSize() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            panelExtraWidth = defaultExtraWidth
+            panelExtraHeight = defaultExtraHeight
+            liveExtraSize = .zero
+        }
+        persistPanelLayout()
+    }
+    
+    private func resetPanelLayout() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            panelOffsetX = 0
+            panelOffsetY = 0
+            panelExtraWidth = defaultExtraWidth
+            panelExtraHeight = defaultExtraHeight
+            liveDragOffset = .zero
+            liveExtraSize = .zero
+        }
+        persistPanelLayout()
+    }
 
     private func handleDrop(for item: ToDoItem, translation: CGFloat) {
         guard let fromIndex = store.items.firstIndex(where: { $0.id == item.id }),
@@ -526,6 +607,7 @@ struct ToDoView: View {
 
 struct ToDoGlassPopover: View {
     @ObservedObject var glassSettings: ToDoGlassSettings
+    var onResetLayout: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -594,10 +676,14 @@ struct ToDoGlassPopover: View {
 
             // Reset position button
             Button(action: {
-                glassSettings.offsetX = 0
-                glassSettings.offsetY = 0
-                glassSettings.extraHeight = 0
-                glassSettings.extraWidth = 0
+                if let onResetLayout = onResetLayout {
+                    onResetLayout()
+                } else {
+                    glassSettings.offsetX = 0
+                    glassSettings.offsetY = 0
+                    glassSettings.extraHeight = 0
+                    glassSettings.extraWidth = 0
+                }
             }) {
                 HStack(spacing: 4) {
                     Image(systemName: "arrow.counterclockwise")

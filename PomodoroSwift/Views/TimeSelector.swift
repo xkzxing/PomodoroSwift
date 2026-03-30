@@ -8,11 +8,7 @@ import SwiftUI
 
 struct TimeSelector: View {
     @Binding var selectedTime: Int
-    let fontDark: Bool
     @State private var dragOffset: CGFloat = 0
-    @State private var velocity: CGFloat = 0
-    @State private var viewWidth: CGFloat = 800
-    @State private var isDragging: Bool = false
     
     let times = Array(stride(from: 5, through: 120, by: 5))
     let itemWidth: CGFloat = 70
@@ -33,8 +29,7 @@ struct TimeSelector: View {
                     ForEach(times, id: \.self) { time in
                         TimeOptionView(
                             time: time,
-                            isSelected: selectedTime == time,
-                            fontDark: fontDark
+                            isSelected: selectedTime == time
                         )
                         .frame(width: itemWidth)
                         .onTapGesture {
@@ -54,13 +49,10 @@ struct TimeSelector: View {
                         var transaction = Transaction()
                         transaction.disablesAnimations = true
                         withTransaction(transaction) {
-                            isDragging = true
                             dragOffset = value.translation.width
-                            velocity = value.velocity.width
                         }
                     }
                     .onEnded { value in
-                        isDragging = false
                         let predictedEndOffset = value.translation.width + (value.velocity.width * 0.3)
                         finalizeSelection(with: predictedEndOffset)
                     }
@@ -122,7 +114,6 @@ struct TimeSelector: View {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             selectedTime = newTime
             dragOffset = 0
-            velocity = 0
         }
     }
 }
@@ -130,7 +121,6 @@ struct TimeSelector: View {
 struct TimeOptionView: View {
     let time: Int
     let isSelected: Bool
-    let fontDark: Bool
     
     var body: some View {
         VStack(spacing: 4) {
@@ -152,6 +142,6 @@ struct TimeOptionView: View {
 #Preview {
     ZStack {
         Color.black
-        TimeSelector(selectedTime: .constant(25), fontDark: false)
+        TimeSelector(selectedTime: .constant(25))
     }
 }

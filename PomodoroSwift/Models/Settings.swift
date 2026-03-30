@@ -155,7 +155,12 @@ class Settings: ObservableObject {
             UserDefaults.standard.set(whiteNoiseEnabled, forKey: "whiteNoiseEnabled")
         }
     }
-    @AppStorage("whiteNoiseType") var whiteNoiseTypeRaw: String = "white"
+
+    @Published var whiteNoiseOnlyWhenTimerRunning: Bool {
+        didSet {
+            UserDefaults.standard.set(whiteNoiseOnlyWhenTimerRunning, forKey: "whiteNoiseOnlyWhenTimerRunning")
+        }
+    }
     
     @Published var whiteNoiseVolume: Double {
         didSet {
@@ -276,6 +281,9 @@ class Settings: ObservableObject {
         
         // Load white noise settings
         self.whiteNoiseEnabled = UserDefaults.standard.bool(forKey: "whiteNoiseEnabled")
+        self.whiteNoiseOnlyWhenTimerRunning = UserDefaults.standard.object(forKey: "whiteNoiseOnlyWhenTimerRunning") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "whiteNoiseOnlyWhenTimerRunning")
         self.whiteNoiseVolume = UserDefaults.standard.object(forKey: "whiteNoiseVolume") != nil
             ? UserDefaults.standard.double(forKey: "whiteNoiseVolume")
             : 0.3

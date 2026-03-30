@@ -56,9 +56,7 @@ struct ContentView: View {
                             // Uses user-selected font size, but shrinks if constrained by the Safe Zone
                             TimerView(
                                 time: timer.formattedTime,
-                                isCompleted: timer.isCompleted,
-                                nsFont: settings.selectedNSFont,
-                                fontDark: !settings.sidebarDarkMode
+                                nsFont: settings.selectedNSFont
                             )
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)
@@ -109,7 +107,7 @@ struct ContentView: View {
                         
                         // Time Selector (Pinned to Window Bottom)
                         if !timer.isRunning && !timer.isCompleted && timer.currentMode == .work {
-                            TimeSelector(selectedTime: $settings.selectedTime, fontDark: !settings.sidebarDarkMode)
+                            TimeSelector(selectedTime: $settings.selectedTime)
                                 .onChange(of: settings.selectedTime) { oldValue, newValue in
                                     timer.updateTime(
                                         workMinutes: newValue,
@@ -249,6 +247,7 @@ struct ContentView: View {
                 noiseManager.setNoiseType(type)
             }
             syncCampfireParams()
+            updateWhiteNoisePlayback()
         }
         .onChange(of: settings.whiteNoiseVolume) { _, newValue in
             noiseManager.setVolume(newValue)
@@ -258,37 +257,30 @@ struct ContentView: View {
                 noiseManager.setNoiseType(type)
             }
         }
-        .onChange(of: settings.whiteNoiseEnabled) { _, enabled in
-            if enabled && timer.isRunning {
-                noiseManager.play()
-            } else if !enabled {
-                noiseManager.stop()
-            }
+        .onChange(of: settings.whiteNoiseEnabled) { _, _ in
+            updateWhiteNoisePlayback()
         }
-        .onChange(of: timer.isRunning) { _, running in
-            if running && settings.whiteNoiseEnabled {
-                noiseManager.play()
-            } else if !running {
-                noiseManager.stop()
-            }
+        .onChange(of: settings.whiteNoiseOnlyWhenTimerRunning) { _, _ in
+            updateWhiteNoisePlayback()
         }
-        .onReceive(
-            settings.$campfireRumble.merge(with:
-                settings.$campfireTexture,
-                settings.$campfireWoodyDensity,
-                settings.$campfireWoodyLevel,
-                settings.$campfireSnapDensity,
-                settings.$campfireSnapLevel,
-                settings.$campfireRumbleSmooth
-            ).merge(with:
-                settings.$campfireTextureSmooth,
-                settings.$campfireFreqLo,
-                settings.$campfireFreqMid,
-                settings.$campfireFreqHi,
-                settings.$campfireResonance,
-                settings.$campfireBurstProb
-            ).dropFirst()
-        ) { _ in
+        .onChange(of: timer.isRunning) { _, _ in
+            updateWhiteNoisePlayback()
+        }
+        .onChange(of: settings.breakTime) { _, newValue in
+            timer.updateTime(
+                workMinutes: settings.selectedTime,
+                breakMinutes: newValue,
+                longBreakMinutes: settings.longBreakTime
+            )
+        }
+        .onChange(of: settings.longBreakTime) { _, newValue in
+            timer.updateTime(
+                workMinutes: settings.selectedTime,
+                breakMinutes: settings.breakTime,
+                longBreakMinutes: newValue
+            )
+        }
+        .onReceive(campfireParamUpdatePublisher) { _ in
             syncCampfireParams()
         }
     }
@@ -311,6 +303,43 @@ struct ContentView: View {
             resonance: settings.campfireResonance,
             burstProb: settings.campfireBurstProb
         )
+    }
+
+    private func shouldPlayWhiteNoise() -> Bool {
+        guard settings.whiteNoiseEnabled else { return false }
+        if settings.whiteNoiseOnlyWhenTimerRunning {
+            return timer.isRunning
+        }
+        return true
+    }
+
+    private func updateWhiteNoisePlayback() {
+        if shouldPlayWhiteNoise() {
+            noiseManager.play()
+        } else {
+            noiseManager.stop()
+        }
+    }
+    
+    private var campfireParamUpdatePublisher: AnyPublisher<Void, Never> {
+        Publishers.MergeMany(
+            settings.$campfireRumble.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireTexture.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireWoodyDensity.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireWoodyLevel.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireSnapDensity.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireSnapLevel.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireRumbleSmooth.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireTextureSmooth.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireFreqLo.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireFreqMid.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireFreqHi.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireResonance.map { _ in () }.eraseToAnyPublisher(),
+            settings.$campfireBurstProb.map { _ in () }.eraseToAnyPublisher()
+        )
+        .dropFirst()
+        .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
+        .eraseToAnyPublisher()
     }
     
     private var glassStyle: Glass {

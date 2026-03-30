@@ -8,6 +8,11 @@
 import SwiftUI
 import UserNotifications
 
+extension Notification.Name {
+    static let restartPomodoroTimer = Notification.Name("RestartPomodoroTimer")
+    static let resetToDoPanel = Notification.Name("resetToDoPanel")
+}
+
 @main
 struct PomodoroSwiftApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -45,20 +50,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         switch response.actionIdentifier {
         case PomodoroTimer.actionStartBreak:
             NotificationCenter.default.post(
-                name: NSNotification.Name("RestartPomodoroTimer"),
+                name: .restartPomodoroTimer,
                 object: nil,
                 userInfo: ["action": "shortBreak"]
             )
         case PomodoroTimer.actionStartLongBreak:
             NotificationCenter.default.post(
-                name: NSNotification.Name("RestartPomodoroTimer"),
+                name: .restartPomodoroTimer,
                 object: nil,
                 userInfo: ["action": "longBreak"]
+            )
+        case PomodoroTimer.actionStartFocus:
+            NotificationCenter.default.post(
+                name: .restartPomodoroTimer,
+                object: nil,
+                userInfo: ["action": "focus"]
             )
         case UNNotificationDefaultActionIdentifier:
             // User clicked the notification itself
             NotificationCenter.default.post(
-                name: NSNotification.Name("RestartPomodoroTimer"),
+                name: .restartPomodoroTimer,
                 object: nil,
                 userInfo: ["action": "next"]
             )
