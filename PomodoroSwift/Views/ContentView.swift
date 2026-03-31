@@ -6,6 +6,7 @@
 import SwiftUI
 import UserNotifications
 import Combine
+import AppKit
 
 struct ContentView: View {
     @StateObject private var settings = Settings()
@@ -274,6 +275,7 @@ struct ContentView: View {
         .environment(\.colorScheme, settings.sidebarDarkMode ? .dark : .light)
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
+            applyAppAppearance()
             requestNotificationPermission()
             // Sync initial noise settings
             noiseManager.setVolume(settings.whiteNoiseVolume)
@@ -316,6 +318,9 @@ struct ContentView: View {
         }
         .onReceive(campfireParamUpdatePublisher) { _ in
             syncCampfireParams()
+        }
+        .onChange(of: settings.sidebarDarkMode) { _, _ in
+            applyAppAppearance()
         }
     }
     
@@ -366,6 +371,12 @@ struct ContentView: View {
             freqHi: settings.campfireFreqHi,
             resonance: settings.campfireResonance,
             burstProb: settings.campfireBurstProb
+        )
+    }
+
+    private func applyAppAppearance() {
+        NSApp.appearance = NSAppearance(
+            named: settings.sidebarDarkMode ? .darkAqua : .aqua
         )
     }
 
@@ -447,7 +458,8 @@ struct ContentView: View {
                 glassEffect: glassStyle,
                 listMaxHeight: 180
             )
-                .environmentObject(settings)
+            .id("\(panel.id.uuidString)-\(settings.sidebarDarkMode ? "dark" : "light")")
+            .environmentObject(settings)
         }
     }
 }
