@@ -67,7 +67,8 @@ struct ContentView: View {
                             // Uses user-selected font size, but shrinks if constrained by the Safe Zone
                             TimerView(
                                 time: timer.formattedTime,
-                                nsFont: settings.selectedNSFont
+                                nsFont: settings.selectedNSFont,
+                                glassStyle: glassStyle
                             )
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)

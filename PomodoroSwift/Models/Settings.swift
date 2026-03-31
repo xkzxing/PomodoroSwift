@@ -149,7 +149,7 @@ class Settings: ObservableObject {
             UserDefaults.standard.set(sidebarDarkMode, forKey: "sidebarDarkMode")
         }
     }
-    
+
     @Published var whiteNoiseEnabled: Bool {
         didSet {
             UserDefaults.standard.set(whiteNoiseEnabled, forKey: "whiteNoiseEnabled")
