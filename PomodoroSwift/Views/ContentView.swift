@@ -107,7 +107,7 @@ struct ContentView: View {
                         
                         // Time Selector (Pinned to Window Bottom)
                         if !timer.isRunning && !timer.isCompleted && timer.currentMode == .work {
-                            TimeSelector(selectedTime: $settings.selectedTime)
+                            TimeSelector(selectedTime: $settings.selectedTime, scrollEnabled: !showSidebar)
                                 .onChange(of: settings.selectedTime) { oldValue, newValue in
                                     timer.updateTime(
                                         workMinutes: newValue,

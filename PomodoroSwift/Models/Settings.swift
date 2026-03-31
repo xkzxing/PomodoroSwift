@@ -174,6 +174,12 @@ class Settings: ObservableObject {
         }
     }
     
+    @Published var aiApiKey: String {
+        didSet {
+            UserDefaults.standard.set(aiApiKey, forKey: "aiApiKey")
+        }
+    }
+    
     // Campfire tuning parameters (0.0 to 1.0)
     @Published var campfireRumble: Double {
         didSet { UserDefaults.standard.set(campfireRumble, forKey: "campfireRumble") }
@@ -288,6 +294,7 @@ class Settings: ObservableObject {
             ? UserDefaults.standard.double(forKey: "whiteNoiseVolume")
             : 0.3
         self.whiteNoiseType = UserDefaults.standard.string(forKey: "whiteNoiseType") ?? "white"
+        self.aiApiKey = UserDefaults.standard.string(forKey: "aiApiKey") ?? ""
         
         // Load campfire tuning parameters
         self.campfireRumble = UserDefaults.standard.object(forKey: "campfireRumble") != nil

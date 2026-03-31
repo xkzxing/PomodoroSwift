@@ -27,9 +27,12 @@ class ToDoStore: ObservableObject {
         didSet { save() }
     }
 
+    private let panelId: UUID
     private let key: String
+    private var itemsSyncObserver: NSObjectProtocol?
 
     init(panelId: UUID) {
+        self.panelId = panelId
         self.key = "toDoItems_\(panelId.uuidString)"
         
         // Attempt to load from new unique key
@@ -45,11 +48,41 @@ class ToDoStore: ObservableObject {
             save() // Save immediately to new key
             UserDefaults.standard.set(true, forKey: "hasMigratedLegacyToDoStore")
         }
+        
+        setupItemsSyncObserver()
+    }
+    
+    deinit {
+        if let itemsSyncObserver {
+            NotificationCenter.default.removeObserver(itemsSyncObserver)
+        }
     }
 
     private func save() {
         if let data = try? JSONEncoder().encode(items) {
             UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+    
+    private func setupItemsSyncObserver() {
+        itemsSyncObserver = NotificationCenter.default.addObserver(
+            forName: .todoItemsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let changedPanelId = notification.userInfo?["panelId"] as? UUID,
+                  changedPanelId == self.panelId else { return }
+            self.reloadFromStorage()
+        }
+    }
+    
+    private func reloadFromStorage() {
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([ToDoItem].self, from: data) {
+            self.items = decoded
+        } else {
+            self.items = []
         }
     }
 
@@ -75,6 +108,47 @@ class ToDoStore: ObservableObject {
         if let idx = items.firstIndex(where: { $0.id == item.id }) {
             items[idx].text = trimmed
         }
+    }
+    
+    @discardableResult
+    static func appendAssignments(_ assignments: [UUID: [String]]) -> Int {
+        var totalInserted = 0
+        
+        for (panelId, tasks) in assignments {
+            totalInserted += appendTasks(tasks, to: panelId)
+        }
+        
+        return totalInserted
+    }
+    
+    @discardableResult
+    static func appendTasks(_ tasks: [String], to panelId: UUID) -> Int {
+        let key = "toDoItems_\(panelId.uuidString)"
+        let normalizedTasks = tasks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        
+        guard !normalizedTasks.isEmpty else { return 0 }
+        
+        var existingItems: [ToDoItem] = []
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([ToDoItem].self, from: data) {
+            existingItems = decoded
+        }
+        
+        let newItems = normalizedTasks.map { ToDoItem(text: $0) }
+        existingItems.append(contentsOf: newItems)
+        
+        guard let encoded = try? JSONEncoder().encode(existingItems) else { return 0 }
+        UserDefaults.standard.set(encoded, forKey: key)
+        
+        NotificationCenter.default.post(
+            name: .todoItemsDidChange,
+            object: nil,
+            userInfo: ["panelId": panelId]
+        )
+        
+        return newItems.count
     }
 
 }

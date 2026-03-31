@@ -11,6 +11,7 @@ import UserNotifications
 extension Notification.Name {
     static let restartPomodoroTimer = Notification.Name("RestartPomodoroTimer")
     static let resetToDoPanel = Notification.Name("resetToDoPanel")
+    static let todoItemsDidChange = Notification.Name("todoItemsDidChange")
 }
 
 @main
