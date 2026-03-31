@@ -14,6 +14,9 @@ struct ContentView: View {
     @State private var showSidebar = false
     @State private var isSidebarToggleHovered = false
     @State private var isSidebarTogglePressed = false
+    @State private var timerPanelOffset: CGSize = .zero
+    @State private var timerPanelLiveOffset: CGSize = .zero
+    @State private var didLoadTimerPanelOffset = false
     
     init() {
         let settings = Settings()
@@ -40,10 +43,17 @@ struct ContentView: View {
                         // Main Timer & Controls
                         // strictly constrained to the top "Safe Zone" to prevent overlap
                         let safeAreaHeight = max(geometry.size.height - 160, 150)
+                        let timerPanelBasePosition = CGPoint(
+                            x: geometry.size.width / 2,
+                            y: safeAreaHeight / 2
+                        )
+                        let currentTimerBaseOffset = clampedTimerPanelOffset(
+                            timerPanelOffset,
+                            in: geometry.size,
+                            safeAreaHeight: safeAreaHeight
+                        )
                         
                         VStack(spacing: 0) {
-                            Spacer()
-                            
                             // Break Label
                             if timer.currentMode == .shortBreak || timer.currentMode == .longBreak {
                                 Text("Break")
@@ -99,11 +109,35 @@ struct ContentView: View {
                                 }
                                 .padding(.top, 20)
                             }
-                            
-                            Spacer()
                         }
-                        .frame(width: geometry.size.width, height: safeAreaHeight)
-                        .position(x: geometry.size.width / 2, y: safeAreaHeight / 2) // Explicit positioning
+                        .frame(width: min(geometry.size.width - 24, 900))
+                        .position(
+                            x: timerPanelBasePosition.x + currentTimerBaseOffset.width + timerPanelLiveOffset.width,
+                            y: timerPanelBasePosition.y + currentTimerBaseOffset.height + timerPanelLiveOffset.height
+                        )
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(
+                            DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                                .onChanged { value in
+                                    timerPanelLiveOffset = value.translation
+                                }
+                                .onEnded { value in
+                                    let proposedOffset = CGSize(
+                                        width: currentTimerBaseOffset.width + value.translation.width,
+                                        height: currentTimerBaseOffset.height + value.translation.height
+                                    )
+                                    timerPanelOffset = clampedTimerPanelOffset(
+                                        proposedOffset,
+                                        in: geometry.size,
+                                        safeAreaHeight: safeAreaHeight
+                                    )
+                                    timerPanelLiveOffset = .zero
+                                    persistTimerPanelOffset()
+                                }
+                        )
+                        .onAppear {
+                            loadTimerPanelOffsetIfNeeded()
+                        }
                         
                         // Time Selector (Pinned to Window Bottom)
                         if !timer.isRunning && !timer.isCompleted && timer.currentMode == .work {
@@ -285,7 +319,37 @@ struct ContentView: View {
         }
     }
     
-
+    private func clampedTimerPanelOffset(
+        _ proposedOffset: CGSize,
+        in containerSize: CGSize,
+        safeAreaHeight: CGFloat
+    ) -> CGSize {
+        let horizontalMargin: CGFloat = 120
+        let verticalMargin: CGFloat = 90
+        
+        let minX = -containerSize.width / 2 + horizontalMargin
+        let maxX = containerSize.width / 2 - horizontalMargin
+        let minY = -safeAreaHeight / 2 + verticalMargin
+        let maxY = safeAreaHeight / 2 - verticalMargin
+        
+        return CGSize(
+            width: min(max(proposedOffset.width, minX), maxX),
+            height: min(max(proposedOffset.height, minY), maxY)
+        )
+    }
+    
+    private func persistTimerPanelOffset() {
+        UserDefaults.standard.set(timerPanelOffset.width, forKey: "timerPanelOffsetX")
+        UserDefaults.standard.set(timerPanelOffset.height, forKey: "timerPanelOffsetY")
+    }
+    
+    private func loadTimerPanelOffsetIfNeeded() {
+        guard !didLoadTimerPanelOffset else { return }
+        let savedX = UserDefaults.standard.double(forKey: "timerPanelOffsetX")
+        let savedY = UserDefaults.standard.double(forKey: "timerPanelOffsetY")
+        timerPanelOffset = CGSize(width: savedX, height: savedY)
+        didLoadTimerPanelOffset = true
+    }
     
     private func syncCampfireParams() {
         noiseManager.setCampfireParams(
@@ -377,7 +441,12 @@ struct ContentView: View {
     @ViewBuilder
     private func todoPanelsLayer(geometry: GeometryProxy, bottomPadding: CGFloat, glassStyle: Glass) -> some View {
         ForEach(settings.todoPanels) { panel in
-            ToDoView(panel: panel, glassEffect: glassStyle, listMaxHeight: 180)
+            ToDoView(
+                panel: panel,
+                containerSize: geometry.size,
+                glassEffect: glassStyle,
+                listMaxHeight: 180
+            )
                 .environmentObject(settings)
         }
     }

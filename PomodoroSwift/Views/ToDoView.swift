@@ -181,6 +181,9 @@ class ToDoGlassSettings: ObservableObject {
     @Published var fontDark: Bool {
         didSet { UserDefaults.standard.set(fontDark, forKey: key("todoFontDark")) }
     }
+    @Published var panelExpanded: Bool {
+        didSet { UserDefaults.standard.set(panelExpanded, forKey: key("todoPanelExpanded")) }
+    }
 
     // Drag position
     @Published var offsetX: Double {
@@ -230,6 +233,7 @@ class ToDoGlassSettings: ObservableObject {
         self.tintOpacity = savedOpacity != 0 ? savedOpacity : 0.15
         
         self.fontDark = migrate(base: "todoFontDark", type: Bool.self) ?? false
+        self.panelExpanded = migrate(base: "todoPanelExpanded", type: Bool.self) ?? true
         
         // Default spawn position: slight jitter based on UUID to avoid stacking
         let jitter = Double(panelId.uuidString.first?.hexDigitValue ?? 0) * 5.0
@@ -274,6 +278,16 @@ private struct RowFrameKey: PreferenceKey {
     }
 }
 
+private struct PanelSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next != .zero {
+            value = next
+        }
+    }
+}
+
 // MARK: - Drag Handle
 
 private struct DragHandle: View {
@@ -305,11 +319,11 @@ private struct DragHandle: View {
 
 struct ToDoView: View {
     let panel: ToDoPanel
+    let containerSize: CGSize
     @StateObject private var store: ToDoStore
     @StateObject private var glassSettings: ToDoGlassSettings
     @EnvironmentObject private var settings: Settings
     @State private var newText: String = ""
-    @State private var isExpanded: Bool = true
     @FocusState private var inputFocused: Bool
 
     // Drag-to-reorder state
@@ -333,14 +347,23 @@ struct ToDoView: View {
     @State private var panelExtraHeight: Double = 0
     @State private var panelExtraWidth: Double = 0
     @State private var didLoadPanelLayout = false
+    @State private var measuredPanelSize: CGSize = .zero
+    @State private var dragPreviewOffset: CGSize?
+    @State private var isDraggingPanel = false
+    @State private var isResizingPanel = false
     
     private let basePanelWidth: Double = 280
     private let minPanelWidth: Double = 200
     private let defaultExtraWidth: Double = 0
     private let defaultExtraHeight: Double = 0
+    private let gridStep: CGFloat = 24
+    private let minListHeight: CGFloat = 44
+    private let fallbackExpandedPanelHeight: CGFloat = 220
+    private let fallbackCollapsedPanelHeight: CGFloat = 56
 
-    init(panel: ToDoPanel, glassEffect: Glass, listMaxHeight: CGFloat = 180) {
+    init(panel: ToDoPanel, containerSize: CGSize, glassEffect: Glass, listMaxHeight: CGFloat = 180) {
         self.panel = panel
+        self.containerSize = containerSize
         self.glassEffect = glassEffect
         self.listMaxHeight = listMaxHeight
         
@@ -351,22 +374,6 @@ struct ToDoView: View {
     private var effectiveGlass: Glass {
         glassSettings.useCustom ? glassSettings.buildGlass() : glassEffect
     }
-    
-    private var minExtraWidth: Double {
-        minPanelWidth - basePanelWidth
-    }
-    
-    private var minExtraHeight: Double {
-        Double(-listMaxHeight + 44)
-    }
-    
-    private func clampedExtraWidth(_ value: Double) -> Double {
-        max(value, minExtraWidth)
-    }
-    
-    private func clampedExtraHeight(_ value: Double) -> Double {
-        max(value, minExtraHeight)
-    }
 
     /// Calculates clamped delta width during drag to pin the left edge
     private var widthChangeDuringDrag: CGFloat {
@@ -374,11 +381,171 @@ struct ToDoView: View {
         let newDisplayWidth = max(basePanelWidth + panelExtraWidth + Double(liveExtraSize.width), minPanelWidth)
         return CGFloat(newDisplayWidth - currentDisplayWidth)
     }
-
+    
+    private var currentDisplayOffsetX: CGFloat {
+        CGFloat(panelOffsetX) + liveDragOffset.width + widthChangeDuringDrag / 2
+    }
+    
+    private var currentDisplayOffsetY: CGFloat {
+        CGFloat(panelOffsetY) + liveDragOffset.height
+    }
+    
+    private var currentDisplayWidth: CGFloat {
+        CGFloat(max(basePanelWidth + panelExtraWidth + Double(liveExtraSize.width), minPanelWidth))
+    }
+    
+    private var currentPanelHeightForPreview: CGFloat {
+        measuredPanelSize.height > 0
+            ? measuredPanelSize.height
+            : (glassSettings.panelExpanded ? fallbackExpandedPanelHeight : fallbackCollapsedPanelHeight)
+    }
+    
     /// Resolved text color: follows global setting when not using custom glass
     private var textColor: Color {
         let isDark = glassSettings.useCustom ? glassSettings.fontDark : !settings.sidebarDarkMode
         return isDark ? .black : .white
+    }
+    
+    private func snapToGrid(_ value: CGFloat) -> CGFloat {
+        (value / gridStep).rounded() * gridStep
+    }
+    
+    private func snappedDisplayWidth(_ width: CGFloat) -> CGFloat {
+        let snapped = snapToGrid(width)
+        let snappedMin = ceil(CGFloat(minPanelWidth) / gridStep) * gridStep
+        return max(snapped, snappedMin)
+    }
+    
+    private func snappedListHeight(_ height: CGFloat) -> CGFloat {
+        let snapped = snapToGrid(height)
+        let snappedMin = ceil(minListHeight / gridStep) * gridStep
+        return max(snapped, snappedMin)
+    }
+    
+    private func clampedOffset(_ proposed: CGSize, panelSize: CGSize) -> CGSize {
+        guard containerSize.width > 0, containerSize.height > 0 else {
+            return proposed
+        }
+        
+        if visibleAreaRatio(of: proposed, panelSize: panelSize) >= 0.5 {
+            return proposed
+        }
+        
+        let minX = -containerSize.width / 2 + panelSize.width / 2
+        let maxX = containerSize.width / 2 - panelSize.width / 2
+        let minY: CGFloat = 0
+        let maxY = containerSize.height - panelSize.height
+        
+        let clampedX: CGFloat
+        if minX > maxX {
+            clampedX = 0
+        } else {
+            clampedX = min(max(proposed.width, minX), maxX)
+        }
+        
+        let clampedY: CGFloat
+        if maxY < minY {
+            clampedY = 0
+        } else {
+            clampedY = min(max(proposed.height, minY), maxY)
+        }
+        
+        return CGSize(width: clampedX, height: clampedY)
+    }
+    
+    private func visibleAreaRatio(of proposed: CGSize, panelSize: CGSize) -> CGFloat {
+        guard panelSize.width > 0, panelSize.height > 0 else {
+            return 1
+        }
+        
+        let panelMinX = proposed.width - panelSize.width / 2
+        let panelMaxX = proposed.width + panelSize.width / 2
+        let panelMinY = proposed.height
+        let panelMaxY = proposed.height + panelSize.height
+        
+        let containerMinX = -containerSize.width / 2
+        let containerMaxX = containerSize.width / 2
+        let containerMinY: CGFloat = 0
+        let containerMaxY = containerSize.height
+        
+        let intersectionWidth = max(0, min(panelMaxX, containerMaxX) - max(panelMinX, containerMinX))
+        let intersectionHeight = max(0, min(panelMaxY, containerMaxY) - max(panelMinY, containerMinY))
+        let visibleArea = intersectionWidth * intersectionHeight
+        let totalArea = panelSize.width * panelSize.height
+        
+        guard totalArea > 0 else { return 1 }
+        return visibleArea / totalArea
+    }
+    
+    private func snappedAndClampedOffset(_ proposed: CGSize, panelSize: CGSize) -> CGSize {
+        let snapped = CGSize(
+            width: snapToGrid(proposed.width),
+            height: snapToGrid(proposed.height)
+        )
+        return clampedOffset(snapped, panelSize: panelSize)
+    }
+    
+    private func normalizedExtraWidth(_ extraWidth: Double) -> Double {
+        let displayWidth = max(basePanelWidth + extraWidth, minPanelWidth)
+        let snapped = snappedDisplayWidth(CGFloat(displayWidth))
+        return Double(snapped) - basePanelWidth
+    }
+    
+    private func normalizedExtraHeight(_ extraHeight: Double) -> Double {
+        let listHeight = max(listMaxHeight + CGFloat(extraHeight), minListHeight)
+        let snapped = snappedListHeight(listHeight)
+        return Double(snapped - listMaxHeight)
+    }
+    
+    private func normalizedPanelSize(
+        extraWidth: Double,
+        extraHeight: Double
+    ) -> CGSize {
+        let width = CGFloat(max(basePanelWidth + extraWidth, minPanelWidth))
+        let currentListHeight = max(listMaxHeight + CGFloat(panelExtraHeight), minListHeight)
+        let targetListHeight = max(listMaxHeight + CGFloat(extraHeight), minListHeight)
+        let listDelta = targetListHeight - currentListHeight
+        let baseHeight = measuredPanelSize.height > 0
+            ? measuredPanelSize.height
+            : (glassSettings.panelExpanded ? fallbackExpandedPanelHeight : fallbackCollapsedPanelHeight)
+        let minimumPanelHeight = glassSettings.panelExpanded ? (minListHeight + 80) : fallbackCollapsedPanelHeight
+        let height = max(baseHeight + listDelta, minimumPanelHeight)
+        return CGSize(width: width, height: height)
+    }
+    
+    private func applyGridAndBoundsNormalization() {
+        let snappedExtraWidth = normalizedExtraWidth(panelExtraWidth)
+        let snappedExtraHeight = normalizedExtraHeight(panelExtraHeight)
+        let targetSize = normalizedPanelSize(
+            extraWidth: snappedExtraWidth,
+            extraHeight: snappedExtraHeight
+        )
+        let snappedOffset = snappedAndClampedOffset(
+            CGSize(width: panelOffsetX, height: panelOffsetY),
+            panelSize: targetSize
+        )
+        
+        var changed = false
+        if panelExtraWidth != snappedExtraWidth {
+            panelExtraWidth = snappedExtraWidth
+            changed = true
+        }
+        if panelExtraHeight != snappedExtraHeight {
+            panelExtraHeight = snappedExtraHeight
+            changed = true
+        }
+        if panelOffsetX != Double(snappedOffset.width) {
+            panelOffsetX = Double(snappedOffset.width)
+            changed = true
+        }
+        if panelOffsetY != Double(snappedOffset.height) {
+            panelOffsetY = Double(snappedOffset.height)
+            changed = true
+        }
+        
+        if changed {
+            persistPanelLayout()
+        }
     }
 
     var body: some View {
@@ -422,13 +589,13 @@ struct ToDoView: View {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.6))
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: isExpanded)
+                    .rotationEffect(.degrees(glassSettings.panelExpanded ? 180 : 0))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: glassSettings.panelExpanded)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            isExpanded.toggle()
+                            glassSettings.panelExpanded.toggle()
                         }
                     }
             }
@@ -438,12 +605,33 @@ struct ToDoView: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 3, coordinateSpace: .global)
                     .onChanged { value in
+                        isDraggingPanel = true
                         liveDragOffset = value.translation
+                        let proposedOffset = CGSize(
+                            width: panelOffsetX + value.translation.width,
+                            height: panelOffsetY + value.translation.height
+                        )
+                        let panelSize = CGSize(
+                            width: CGFloat(max(basePanelWidth + panelExtraWidth, minPanelWidth)),
+                            height: currentPanelHeightForPreview
+                        )
+                        dragPreviewOffset = snappedAndClampedOffset(proposedOffset, panelSize: panelSize)
                     }
                     .onEnded { value in
-                        panelOffsetX += Double(value.translation.width)
-                        panelOffsetY += Double(value.translation.height)
+                        let proposedOffset = CGSize(
+                            width: panelOffsetX + value.translation.width,
+                            height: panelOffsetY + value.translation.height
+                        )
+                        let panelSize = CGSize(
+                            width: CGFloat(max(basePanelWidth + panelExtraWidth, minPanelWidth)),
+                            height: currentPanelHeightForPreview
+                        )
+                        let snappedOffset = snappedAndClampedOffset(proposedOffset, panelSize: panelSize)
+                        panelOffsetX = Double(snappedOffset.width)
+                        panelOffsetY = Double(snappedOffset.height)
                         liveDragOffset = .zero
+                        dragPreviewOffset = nil
+                        isDraggingPanel = false
                         persistPanelLayout()
                     }
             )
@@ -457,7 +645,7 @@ struct ToDoView: View {
             }
 
             // ── Expanded content (below header) ─────────────────────────────
-            if isExpanded {
+            if glassSettings.panelExpanded {
                 Divider().background(.white.opacity(0.15))
 
                 // Task list
@@ -547,19 +735,41 @@ struct ToDoView: View {
                         .gesture(
                             DragGesture(coordinateSpace: .global)
                                 .onChanged { value in
+                                    isResizingPanel = true
                                     liveExtraSize = value.translation
                                 }
                                 .onEnded { value in
-                                    let newExtraHeight = clampedExtraHeight(panelExtraHeight + Double(value.translation.height))
-                                    let oldDisplayExtraWidth = clampedExtraWidth(panelExtraWidth)
-                                    let newDisplayExtraWidth = clampedExtraWidth(panelExtraWidth + Double(value.translation.width))
-                                    let deltaWidth = newDisplayExtraWidth - oldDisplayExtraWidth
-                                    
+                                    let oldDisplayWidth = CGFloat(max(basePanelWidth + panelExtraWidth, minPanelWidth))
+                                    let oldListHeight = max(listMaxHeight + CGFloat(panelExtraHeight), minListHeight)
+
+                                    let proposedDisplayWidth = oldDisplayWidth + value.translation.width
+                                    let snappedWidth = snappedDisplayWidth(proposedDisplayWidth)
+                                    let newExtraWidth = Double(snappedWidth) - basePanelWidth
+
+                                    let proposedListHeight = oldListHeight + value.translation.height
+                                    let snappedList = snappedListHeight(proposedListHeight)
+                                    let newExtraHeight = Double(snappedList - listMaxHeight)
+
+                                    let deltaWidth = Double(snappedWidth - oldDisplayWidth)
+
                                     panelExtraHeight = newExtraHeight
-                                    panelExtraWidth = newDisplayExtraWidth
+                                    panelExtraWidth = newExtraWidth
                                     // Keep left edge fixed while size changes around the horizontal center anchor.
                                     panelOffsetX += deltaWidth / 2
+
+                                    let targetSize = normalizedPanelSize(
+                                        extraWidth: panelExtraWidth,
+                                        extraHeight: panelExtraHeight
+                                    )
+                                    let clamped = clampedOffset(
+                                        CGSize(width: panelOffsetX, height: panelOffsetY),
+                                        panelSize: targetSize
+                                    )
+                                    panelOffsetX = Double(clamped.width)
+                                    panelOffsetY = Double(clamped.height)
+
                                     liveExtraSize = .zero
+                                    isResizingPanel = false
                                     persistPanelLayout()
                                 }
                         )
@@ -569,18 +779,42 @@ struct ToDoView: View {
                 }
             }
         }
-        .frame(width: CGFloat(max(basePanelWidth + panelExtraWidth + Double(liveExtraSize.width), minPanelWidth))) // Shrunk base width to 280
+        .frame(width: currentDisplayWidth)
         .contentShape(Rectangle())
         .background(.clear)
         .glassEffect(effectiveGlass, in: RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: -4)
+        .overlay {
+            if let previewOffset = dragPreviewOffset {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(
+                        textColor.opacity(0.6),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])
+                    )
+                    .frame(width: currentDisplayWidth, height: currentPanelHeightForPreview)
+                    .offset(
+                        x: previewOffset.width - currentDisplayOffsetX,
+                        y: previewOffset.height - currentDisplayOffsetY
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .offset(
-            x: CGFloat(panelOffsetX) + liveDragOffset.width + widthChangeDuringDrag / 2,
-            y: CGFloat(panelOffsetY) + liveDragOffset.height
+            x: currentDisplayOffsetX,
+            y: currentDisplayOffsetY
+        )
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: PanelSizeKey.self, value: proxy.size)
+            }
         )
         .onAppear {
             loadPanelLayoutIfNeeded()
+        }
+        .onPreferenceChange(PanelSizeKey.self) { size in
+            guard size.width > 0, size.height > 0 else { return }
+            measuredPanelSize = size
         }
         .onReceive(NotificationCenter.default.publisher(for: .resetToDoPanel)) { notification in
             if let targetId = notification.userInfo?["panelId"] as? UUID, targetId == panel.id {
@@ -593,7 +827,7 @@ struct ToDoView: View {
                     liveDragOffset = .zero
                     liveExtraSize = .zero
                 }
-                persistPanelLayout()
+                applyGridAndBoundsNormalization()
             }
         }
     }
@@ -604,8 +838,8 @@ struct ToDoView: View {
         guard !didLoadPanelLayout else { return }
         panelOffsetX = glassSettings.offsetX
         panelOffsetY = glassSettings.offsetY
-        panelExtraHeight = clampedExtraHeight(glassSettings.extraHeight)
-        panelExtraWidth = clampedExtraWidth(glassSettings.extraWidth)
+        panelExtraHeight = glassSettings.extraHeight
+        panelExtraWidth = glassSettings.extraWidth
         didLoadPanelLayout = true
     }
     
@@ -630,7 +864,7 @@ struct ToDoView: View {
             panelExtraHeight = defaultExtraHeight
             liveExtraSize = .zero
         }
-        persistPanelLayout()
+        applyGridAndBoundsNormalization()
     }
     
     private func resetPanelLayout() {
@@ -642,7 +876,7 @@ struct ToDoView: View {
             liveDragOffset = .zero
             liveExtraSize = .zero
         }
-        persistPanelLayout()
+        applyGridAndBoundsNormalization()
     }
 
     private func handleDrop(for item: ToDoItem, translation: CGFloat) {
