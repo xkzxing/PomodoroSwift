@@ -16,10 +16,12 @@ struct ToDoView: View {
     @FocusState private var inputFocused: Bool
 
     @State private var draggingItemId: UUID?
+    @State private var pendingDropItemId: UUID?
     @State private var latestDragGlobalY: CGFloat?
-    @State private var dragStartGlobalY: CGFloat?
-    @State private var dragPointerToRowMinY: CGFloat?
-    @State private var lastSwapItemId: UUID?
+    @State private var dragDisplayOffsetY: CGFloat = 0
+    @State private var initialDragIndex: Int?
+    @State private var currentDragIndex: Int?
+    @State private var lastChangeItemId: UUID?
     @State private var rowFrames: [UUID: CGRect] = [:]
     @State private var scrollViewportFrame: CGRect = .zero
     @State private var autoScrollTimer: Timer?
@@ -52,13 +54,7 @@ struct ToDoView: View {
     private let fallbackCollapsedPanelHeight: CGFloat = 56
     private let autoScrollHotZoneHeight: CGFloat = 32
     private let autoScrollTickInterval: TimeInterval = 0.06
-    private let swapEdgeThreshold: CGFloat = 24
-    private let dragActivationDistance: CGFloat = 10
-
-    private var draggingItemSnapshot: ToDoItem? {
-        guard let draggingItemId else { return nil }
-        return store.items.first(where: { $0.id == draggingItemId })
-    }
+    private let swapEdgeBumper: CGFloat = 18
 
     init(panel: ToDoPanel, containerSize: CGSize, glassEffect: Glass, listMaxHeight: CGFloat = 180) {
         self.panel = panel
@@ -351,9 +347,10 @@ struct ToDoView: View {
                         VStack(spacing: 0) {
                             ForEach(store.items) { item in
                                 HStack(spacing: 0) {
-                                    DragHandle(textColor: textColor) { _, globalY in
+                                    DragHandle(textColor: textColor) { translationY, globalY in
                                             handleItemDragChanged(
                                                 itemId: item.id,
+                                                translationY: translationY,
                                                 globalY: globalY,
                                                 scrollProxy: scrollProxy
                                             )
@@ -384,10 +381,19 @@ struct ToDoView: View {
                                     }
                                 )
                                 .id(item.id.uuidString)
-                                .zIndex(draggingItemId == item.id ? 1 : 0)
-                                .opacity(draggingItemId == item.id ? 0.06 : 1.0)
-                                .shadow(color: .clear, radius: 0, y: 0)
-                                .animation(.easeInOut(duration: 0.12), value: draggingItemId == item.id)
+                                .offset(y: dragOffset(for: item.id))
+                                .zIndex((draggingItemId == item.id || pendingDropItemId == item.id) ? 10 : 0)
+                                .scaleEffect(draggingItemId == item.id ? 1.01 : 1)
+                                .shadow(
+                                    color: draggingItemId == item.id ? .black.opacity(0.14) : .clear,
+                                    radius: draggingItemId == item.id ? 8 : 0,
+                                    y: draggingItemId == item.id ? 2 : 0
+                                )
+                                .transaction { transaction in
+                                    if draggingItemId == item.id {
+                                        transaction.animation = nil
+                                    }
+                                }
                             }
                         }
                     }
@@ -404,17 +410,6 @@ struct ToDoView: View {
                     }
                     .onPreferenceChange(ScrollViewportFrameKey.self) { frame in
                         scrollViewportFrame = frame
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if let draggingPreviewFrame = draggingPreviewFrameInViewport(),
-                           let draggingItemSnapshot {
-                            draggingPreviewRow(item: draggingItemSnapshot)
-                                .frame(width: draggingPreviewFrame.width, height: draggingPreviewFrame.height, alignment: .leading)
-                                .offset(x: draggingPreviewFrame.minX, y: draggingPreviewFrame.minY)
-                                .allowsHitTesting(false)
-                                .transition(.opacity)
-                                .zIndex(10)
-                        }
                     }
                 }
                 .frame(height: computedHeight)
@@ -604,157 +599,157 @@ struct ToDoView: View {
 
     private func handleItemDragChanged(
         itemId: UUID,
+        translationY: CGFloat,
         globalY: CGFloat,
         scrollProxy: ScrollViewProxy
     ) {
         if draggingItemId == nil {
+            guard let index = store.items.firstIndex(where: { $0.id == itemId }) else { return }
             draggingItemId = itemId
-            lastSwapItemId = nil
-            dragStartGlobalY = globalY
-            if let frame = rowFrames[itemId] {
-                dragPointerToRowMinY = globalY - frame.minY
-            }
+            pendingDropItemId = nil
+            latestDragGlobalY = globalY
+            dragDisplayOffsetY = 0
+            initialDragIndex = index
+            currentDragIndex = index
+            lastChangeItemId = nil
         }
 
         guard draggingItemId == itemId else { return }
 
+        withTransaction(Transaction(animation: nil)) {
+            dragDisplayOffsetY = translationY
+        }
         latestDragGlobalY = globalY
-        let startY = dragStartGlobalY ?? globalY
-        let hasActivatedReorder = abs(globalY - startY) >= dragActivationDistance
 
-        guard hasActivatedReorder else { return }
-
-        updateReorderTarget(for: globalY)
+        checkIntersection(at: globalY)
         updateAutoScrollState(for: globalY, scrollProxy: scrollProxy)
     }
 
-    private func draggingPreviewFrameInViewport() -> CGRect? {
-        guard let draggingItemId,
-              let viewport = optionalViewportFrame(),
-              let rowFrame = rowFrames[draggingItemId],
-              let latestDragGlobalY else {
-            return nil
+    private func dragOffset(for itemId: UUID) -> CGFloat {
+        guard draggingItemId == itemId else { return 0 }
+        return dragDisplayOffsetY + positionOffsetForDraggedItem()
+    }
+
+    private func positionOffsetForDraggedItem() -> CGFloat {
+        guard draggingItemId != nil,
+              let initialDragIndex,
+              let currentDragIndex,
+              !store.items.isEmpty,
+              store.items.indices.contains(initialDragIndex),
+              store.items.indices.contains(currentDragIndex) else {
+            return 0
         }
 
-        let pointerToRowMinY = dragPointerToRowMinY ?? (latestDragGlobalY - rowFrame.minY)
-        let rowMinYGlobal = latestDragGlobalY - pointerToRowMinY
-        return CGRect(
-            x: rowFrame.minX - viewport.minX,
-            y: rowMinYGlobal - viewport.minY,
-            width: rowFrame.width,
-            height: rowFrame.height
-        )
-    }
-
-    private func optionalViewportFrame() -> CGRect? {
-        scrollViewportFrame.isEmpty ? nil : scrollViewportFrame
-    }
-
-    @ViewBuilder
-    private func draggingPreviewRow(item: ToDoItem) -> some View {
-        HStack(spacing: 0) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(textColor.opacity(0.5))
-                .frame(width: 18, height: 34)
-
-            ToDoRow(item: item, onToggle: {}, onDelete: {}, onEdit: { _ in })
+        if currentDragIndex > initialDragIndex {
+            return store.items[initialDragIndex..<currentDragIndex].reduce(CGFloat.zero) { offset, item in
+                offset - (rowFrames[item.id]?.height ?? 0)
+            }
+        } else if currentDragIndex < initialDragIndex {
+            return store.items[(currentDragIndex + 1)...initialDragIndex].reduce(CGFloat.zero) { offset, item in
+                offset + (rowFrames[item.id]?.height ?? 0)
+            }
         }
-        .background(Color.clear)
-        .scaleEffect(1.03)
-        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
-        .opacity(0.95)
+
+        return 0
     }
 
-    private func updateReorderTarget(for globalY: CGFloat) {
+    private func checkIntersection(at pointerY: CGFloat) {
         guard let draggingItemId,
-              let fromIndex = store.items.firstIndex(where: { $0.id == draggingItemId }) else {
+              let currentDragIndex else {
             return
         }
 
-        let orderedItemIdsByFrame = store.items
-            .filter { $0.id != draggingItemId }
-            .compactMap { item -> (UUID, CGFloat)? in
-                guard let frame = rowFrames[item.id] else { return nil }
-                return (item.id, frame.midY)
+        let intersectedItem = store.items.first { item in
+            guard item.id != draggingItemId,
+                  let frame = rowFrames[item.id],
+                  !frame.isEmpty else {
+                return false
             }
-            .sorted { $0.1 < $1.1 }
-            .map(\.0)
+            return pointerY >= frame.minY && pointerY <= frame.maxY
+        }
 
-        guard orderedItemIdsByFrame.count == max(store.items.count - 1, 0) else {
+        guard let intersectedItem,
+              let targetIndex = store.items.firstIndex(where: { $0.id == intersectedItem.id }),
+              let targetFrame = rowFrames[intersectedItem.id] else {
+            lastChangeItemId = nil
             return
         }
 
-        let insertionIndex = orderedItemIdsByFrame.reduce(0) { count, itemId in
-            guard let frame = rowFrames[itemId], globalY > frame.midY else { return count }
-            return count + 1
+        guard hasCrossedSwapThreshold(
+            currentIndex: currentDragIndex,
+            targetIndex: targetIndex,
+            targetFrame: targetFrame,
+            pointerY: pointerY
+        ) else {
+            return
         }
 
-        let targetOffset: Int?
-        if insertionIndex >= orderedItemIdsByFrame.count {
-            targetOffset = ToDoReorderEngine.listEndOffset(
-                fromIndex: fromIndex,
-                itemCount: store.items.count
-            )
-            lastSwapItemId = nil
-        } else {
-            let targetItemId = orderedItemIdsByFrame[insertionIndex]
-            guard let toIndex = store.items.firstIndex(where: { $0.id == targetItemId }) else {
-                return
-            }
-
-            if shouldDelaySwapBack(
-                targetItemId: targetItemId,
-                targetFrame: rowFrames[targetItemId] ?? .zero,
-                currentIndex: fromIndex,
-                targetIndex: toIndex,
-                pointerY: globalY
-            ) {
-                return
-            }
-
-            targetOffset = ToDoReorderEngine.rowTargetOffset(
-                fromIndex: fromIndex,
-                toIndex: toIndex,
-                itemCount: store.items.count
-            )
-
-            if targetOffset != nil {
-                lastSwapItemId = targetItemId
-            }
+        if lastChangeItemId == intersectedItem.id,
+           notAtOtherEdge(
+                currentIndex: currentDragIndex,
+                targetIndex: targetIndex,
+                targetFrame: targetFrame,
+                pointerY: pointerY
+           ) {
+            return
         }
 
-        guard let targetOffset else { return }
-
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
-            store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetOffset)
-        }
+        lastChangeItemId = intersectedItem.id
+        moveDraggedItem(from: currentDragIndex, to: targetIndex)
     }
 
-    private func shouldDelaySwapBack(
-        targetItemId: UUID,
-        targetFrame: CGRect,
+    private func hasCrossedSwapThreshold(
         currentIndex: Int,
         targetIndex: Int,
+        targetFrame: CGRect,
         pointerY: CGFloat
     ) -> Bool {
-        guard lastSwapItemId == targetItemId else {
-            return false
+        guard !targetFrame.isEmpty else { return false }
+
+        let midY = targetFrame.midY
+        if targetIndex > currentIndex {
+            return pointerY >= midY
+        } else if targetIndex < currentIndex {
+            return pointerY <= midY
         }
 
+        return false
+    }
+
+    private func notAtOtherEdge(
+        currentIndex: Int,
+        targetIndex: Int,
+        targetFrame: CGRect,
+        pointerY: CGFloat
+    ) -> Bool {
         guard !targetFrame.isEmpty else {
             return true
         }
 
+        let edgeBumper = min(max(targetFrame.height * 0.45, 8), swapEdgeBumper)
         if currentIndex > targetIndex {
-            let upperBandMax = min(targetFrame.minY + swapEdgeThreshold, targetFrame.maxY)
+            let upperBandMax = min(targetFrame.minY + edgeBumper, targetFrame.maxY)
             let isInUpperBand = pointerY >= targetFrame.minY && pointerY <= upperBandMax
             return !isInUpperBand
         } else {
-            let lowerBandMin = max(targetFrame.maxY - swapEdgeThreshold, targetFrame.minY)
+            let lowerBandMin = max(targetFrame.maxY - edgeBumper, targetFrame.minY)
             let isInLowerBand = pointerY <= targetFrame.maxY && pointerY >= lowerBandMin
             return !isInLowerBand
         }
+    }
+
+    private func moveDraggedItem(from fromIndex: Int, to toIndex: Int) {
+        guard fromIndex != toIndex,
+              store.items.indices.contains(fromIndex),
+              store.items.indices.contains(toIndex) else {
+            return
+        }
+
+        let targetOffset = toIndex > fromIndex ? toIndex + 1 : toIndex
+        withAnimation(.easeInOut(duration: 0.14)) {
+            store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetOffset)
+        }
+        currentDragIndex = toIndex
     }
 
     private func updateAutoScrollState(for globalY: CGFloat, scrollProxy: ScrollViewProxy) {
@@ -774,24 +769,45 @@ struct ToDoView: View {
 
     private func performAutoScrollStep(direction: ToDoAutoScrollDirection, scrollProxy: ScrollViewProxy) {
         guard let draggingItemId,
-              let fromIndex = store.items.firstIndex(where: { $0.id == draggingItemId }),
-              let targetOffset = ToDoReorderEngine.adjacentOffset(
-                fromIndex: fromIndex,
-                direction: direction.reorderDirection,
-                itemCount: store.items.count
-              ) else {
+              let fromIndex = currentDragIndex ?? store.items.firstIndex(where: { $0.id == draggingItemId }) else {
             return
         }
 
-        withTransaction(Transaction(animation: nil)) {
+        let targetIndex = direction == .up ? (fromIndex - 1) : (fromIndex + 1)
+        guard store.items.indices.contains(targetIndex) else {
+            withAnimation(.linear(duration: autoScrollTickInterval)) {
+                scrollProxy.scrollTo(draggingItemId.uuidString, anchor: direction.anchor)
+            }
+            return
+        }
+
+        let crossedItemId = store.items[targetIndex].id
+        let crossedHeight = rowFrames[crossedItemId]?.height ?? 0
+        let targetOffset = targetIndex > fromIndex ? targetIndex + 1 : targetIndex
+
+        withTransaction(Transaction(animation: .linear(duration: autoScrollTickInterval))) {
             store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetOffset)
         }
+        currentDragIndex = targetIndex
+        lastChangeItemId = crossedItemId
+
+        if crossedHeight > 0 {
+            withTransaction(Transaction(animation: nil)) {
+                switch direction {
+                case .up:
+                    dragDisplayOffsetY -= crossedHeight
+                case .down:
+                    dragDisplayOffsetY += crossedHeight
+                }
+            }
+        }
+
         withAnimation(.linear(duration: autoScrollTickInterval)) {
             scrollProxy.scrollTo(draggingItemId.uuidString, anchor: direction.anchor)
         }
 
         if let latestDragGlobalY {
-            updateReorderTarget(for: latestDragGlobalY)
+            checkIntersection(at: latestDragGlobalY)
         }
     }
 
@@ -824,11 +840,31 @@ struct ToDoView: View {
 
     private func finishReorderDrag() {
         stopAutoScroll()
-        draggingItemId = nil
-        latestDragGlobalY = nil
-        dragStartGlobalY = nil
-        dragPointerToRowMinY = nil
-        lastSwapItemId = nil
+        let droppedItemId = draggingItemId
+
+        if droppedItemId != nil {
+            pendingDropItemId = droppedItemId
+        }
+
+        withAnimation(.easeOut(duration: 0.14)) {
+            draggingItemId = nil
+            latestDragGlobalY = nil
+            dragDisplayOffsetY = 0
+            initialDragIndex = nil
+            currentDragIndex = nil
+            lastChangeItemId = nil
+        }
+
+        guard let droppedItemId else {
+            pendingDropItemId = nil
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if pendingDropItemId == droppedItemId, draggingItemId == nil {
+                pendingDropItemId = nil
+            }
+        }
     }
 }
 
@@ -842,15 +878,6 @@ private enum ToDoAutoScrollDirection {
             return .top
         case .down:
             return .bottom
-        }
-    }
-
-    var reorderDirection: ToDoReorderDirection {
-        switch self {
-        case .up:
-            return .up
-        case .down:
-            return .down
         }
     }
 }
