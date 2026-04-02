@@ -2,8 +2,8 @@ import SwiftUI
 
 struct DragHandle: View {
     let textColor: Color
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: (CGFloat) -> Void
+    let onDragChanged: (_ translationY: CGFloat, _ globalY: CGFloat) -> Void
+    let onDragEnded: () -> Void
 
     @State private var isHovered = false
 
@@ -14,9 +14,13 @@ struct DragHandle: View {
             .frame(width: 18, height: 34)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in onDragChanged(value.translation.height) }
-                    .onEnded { value in onDragEnded(value.translation.height) }
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        onDragChanged(value.translation.height, value.location.y)
+                    }
+                    .onEnded { _ in
+                        onDragEnded()
+                    }
             )
             .onHover { hovering in
                 isHovered = hovering
