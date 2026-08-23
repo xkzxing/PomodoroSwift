@@ -149,7 +149,7 @@ class Settings: ObservableObject {
             UserDefaults.standard.set(sidebarDarkMode, forKey: "sidebarDarkMode")
         }
     }
-    
+
     @Published var whiteNoiseEnabled: Bool {
         didSet {
             UserDefaults.standard.set(whiteNoiseEnabled, forKey: "whiteNoiseEnabled")
@@ -171,6 +171,12 @@ class Settings: ObservableObject {
     @Published var whiteNoiseType: String {
         didSet {
             UserDefaults.standard.set(whiteNoiseType, forKey: "whiteNoiseType")
+        }
+    }
+    
+    @Published var aiApiKey: String {
+        didSet {
+            UserDefaults.standard.set(aiApiKey, forKey: "aiApiKey")
         }
     }
     
@@ -288,6 +294,7 @@ class Settings: ObservableObject {
             ? UserDefaults.standard.double(forKey: "whiteNoiseVolume")
             : 0.3
         self.whiteNoiseType = UserDefaults.standard.string(forKey: "whiteNoiseType") ?? "white"
+        self.aiApiKey = UserDefaults.standard.string(forKey: "aiApiKey") ?? ""
         
         // Load campfire tuning parameters
         self.campfireRumble = UserDefaults.standard.object(forKey: "campfireRumble") != nil

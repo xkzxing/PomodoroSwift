@@ -39,14 +39,13 @@ struct ScrollViewModifier: ViewModifier {
     }
     
     private func detectScroll(event: NSEvent) {
-        // Only process if the mouse is roughly over the window (simple check)
-        // For a more complex app we might check hit testing, but for this specific 
-        // full-width component, capturing all scrolls while it's active is usually fine/better.
-        // However, to be safe, we rely on the fact this modifier is only active when the view is present.
+        let deltaX = event.scrollingDeltaX
+        let deltaY = event.scrollingDeltaY
+        let hasHorizontalIntent = abs(deltaX) > abs(deltaY)
+        guard hasHorizontalIntent, abs(deltaX) > 0 else { return }
         
-        if event.phase == .changed || event.momentumPhase == .changed || event.deltaX != 0 {
-            // macOS scroll deltas can be small, multiply for better feel
-            onScroll(event.scrollingDeltaX)
+        if event.phase == .changed || event.momentumPhase == .changed || deltaX != 0 {
+            onScroll(deltaX)
             
             // Debounce end of scroll
             scrollTimer?.invalidate()

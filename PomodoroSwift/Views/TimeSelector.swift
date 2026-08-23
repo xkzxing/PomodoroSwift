@@ -8,6 +8,7 @@ import SwiftUI
 
 struct TimeSelector: View {
     @Binding var selectedTime: Int
+    var scrollEnabled: Bool = true
     @State private var dragOffset: CGFloat = 0
     
     let times = Array(stride(from: 5, through: 120, by: 5))
@@ -57,18 +58,24 @@ struct TimeSelector: View {
                         finalizeSelection(with: predictedEndOffset)
                     }
             )
-            .onScroll(perform: { deltaX in
-                let speedMultiplier: CGFloat = 2.0
-                let newOffset = dragOffset + deltaX * speedMultiplier
-                
-                // Clamp: don't allow scrolling past the first or last item
-                let currentIndex = times.firstIndex(of: selectedTime) ?? 0
-                let maxLeftOffset = CGFloat(currentIndex) * itemWidth  // can't go past first item
-                let maxRightOffset = -CGFloat(times.count - 1 - currentIndex) * itemWidth  // can't go past last item
-                dragOffset = min(maxLeftOffset, max(maxRightOffset, newOffset))
-            }, onEnd: {
-                finalizeSelection(with: dragOffset)
-            })
+            .modifier(
+                HorizontalScrollBindingModifier(
+                    isEnabled: scrollEnabled,
+                    onScroll: { deltaX in
+                        let speedMultiplier: CGFloat = 2.0
+                        let newOffset = dragOffset + deltaX * speedMultiplier
+                        
+                        // Clamp: don't allow scrolling past the first or last item
+                        let currentIndex = times.firstIndex(of: selectedTime) ?? 0
+                        let maxLeftOffset = CGFloat(currentIndex) * itemWidth  // can't go past first item
+                        let maxRightOffset = -CGFloat(times.count - 1 - currentIndex) * itemWidth  // can't go past last item
+                        dragOffset = min(maxLeftOffset, max(maxRightOffset, newOffset))
+                    },
+                    onEnd: {
+                        finalizeSelection(with: dragOffset)
+                    }
+                )
+            )
             .mask(
                 LinearGradient(
                     stops: [
@@ -114,6 +121,21 @@ struct TimeSelector: View {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             selectedTime = newTime
             dragOffset = 0
+        }
+    }
+}
+
+private struct HorizontalScrollBindingModifier: ViewModifier {
+    let isEnabled: Bool
+    let onScroll: (CGFloat) -> Void
+    let onEnd: () -> Void
+    
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.onScroll(perform: onScroll, onEnd: onEnd)
+        } else {
+            content
         }
     }
 }
