@@ -1,0 +1,131 @@
+{
+  "color-space-for-untagged-svg-colors": "display-p3",
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.82,0.95,1,1",
+          "display-p3:0.78,0.72,0.98,1"
+        ],
+        "orientation": {
+          "start": { "x": 0.12, "y": 0.04 },
+          "stop": { "x": 0.88, "y": 0.96 }
+        }
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.015,0.025,0.120,1",
+          "display-p3:0.065,0.008,0.160,1"
+        ],
+        "orientation": {
+          "start": { "x": 0.12, "y": 0.04 },
+          "stop": { "x": 0.88, "y": 0.96 }
+        }
+      }
+    },
+    { "appearance": "tinted", "value": "automatic" }
+  ],
+  "groups": [
+    {
+      "lighting": "combined",
+      "specular": true,
+      "blur-material": 0.12,
+      "translucency": { "enabled": true, "value": 0.35 },
+      "shadow": { "kind": "neutral", "opacity": 0.16 },
+      "layers": [
+        {
+          "name": "Countdown",
+          "image-name": "timer.svg",
+          "fill-specializations": [
+            { "value": { "solid": "display-p3:1,1,1,0.95" } },
+            { "appearance": "dark", "value": { "solid": "display-p3:0.92,0.96,1,0.92" } },
+            { "appearance": "tinted", "value": "automatic" }
+          ],
+          "glass": false
+        },
+        {
+          "name": "Tasks",
+          "image-name": "tasks.svg",
+          "fill-specializations": [
+            { "value": { "solid": "display-p3:1,1,1,0.95" } },
+            { "appearance": "dark", "value": { "solid": "display-p3:0.92,0.96,1,0.92" } },
+            { "appearance": "tinted", "value": "automatic" }
+          ],
+          "glass": false
+        }
+      ]
+    },
+    {
+      "lighting": "individual",
+      "specular": true,
+      "blur-material": 0.42,
+      "translucency": { "enabled": true, "value": 0.70 },
+      "shadow": { "kind": "layer-color", "opacity": 0.28 },
+      "layers": [
+        {
+          "name": "Aqua front pane",
+          "image-name": "front-pane.svg",
+          "fill-specializations": [
+            {
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.25,0.92,1,0.72",
+                  "display-p3:0.20,0.45,1,0.68"
+                ]
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.18,0.65,0.92,0.68",
+                  "display-p3:0.14,0.30,0.78,0.62"
+                ]
+              }
+            },
+            { "appearance": "tinted", "value": "automatic" }
+          ],
+          "glass": true
+        }
+      ]
+    },
+    {
+      "lighting": "individual",
+      "specular": true,
+      "blur-material": 0.34,
+      "translucency": { "enabled": true, "value": 0.63 },
+      "shadow": { "kind": "layer-color", "opacity": 0.30 },
+      "layers": [
+        {
+          "name": "Violet rear pane",
+          "image-name": "back-pane.svg",
+          "fill-specializations": [
+            {
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.63,0.29,1,0.86",
+                  "display-p3:0.30,0.14,0.92,0.74"
+                ]
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.48,0.20,0.86,0.76",
+                  "display-p3:0.18,0.08,0.56,0.68"
+                ]
+              }
+            },
+            { "appearance": "tinted", "value": "automatic" }
+          ],
+          "glass": true
+        }
+      ]
+    }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}
