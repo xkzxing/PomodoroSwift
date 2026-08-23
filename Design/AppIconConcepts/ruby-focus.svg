@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#162b78"/>
+      <stop offset="0.48" stop-color="#0a1550"/>
+      <stop offset="1" stop-color="#05071d"/>
+    </linearGradient>
+    <radialGradient id="redGlass" cx="36%" cy="18%" r="92%">
+      <stop offset="0" stop-color="#ff9aa8" stop-opacity=".94"/>
+      <stop offset=".2" stop-color="#f93455" stop-opacity=".82"/>
+      <stop offset=".72" stop-color="#b30f3e" stop-opacity=".74"/>
+      <stop offset="1" stop-color="#63062c" stop-opacity=".9"/>
+    </radialGradient>
+    <linearGradient id="leafGlass" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#c8ff9b"/>
+      <stop offset=".27" stop-color="#55e69b" stop-opacity=".88"/>
+      <stop offset="1" stop-color="#0a855e" stop-opacity=".82"/>
+    </linearGradient>
+    <linearGradient id="iceGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffef8" stop-opacity=".98"/>
+      <stop offset=".5" stop-color="#f6dddf" stop-opacity=".88"/>
+      <stop offset="1" stop-color="#d7aebf" stop-opacity=".74"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="16" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.01  0 0 0 0 0.02  0 0 0 0 0.12  0 0 0 .55 0"/>
+      <feOffset dy="24"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softBlur"><feGaussianBlur stdDeviation="10"/></filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <circle cx="512" cy="400" r="390" fill="#3f69d5" opacity=".13" filter="url(#softBlur)"/>
+  <g filter="url(#softShadow)">
+    <ellipse cx="402" cy="555" rx="215" ry="250" fill="url(#redGlass)"/>
+    <ellipse cx="622" cy="555" rx="215" ry="250" fill="url(#redGlass)"/>
+    <ellipse cx="512" cy="575" rx="146" ry="222" fill="#7f0836" opacity=".3"/>
+    <path d="M338 401c33-75 123-107 188-55-56 19-111 56-153 112-32-11-46-31-35-57Z" fill="url(#leafGlass)"/>
+    <path d="M686 401c-33-75-123-107-188-55 56 19 111 56 153 112 32-11 46-31 35-57Z" fill="url(#leafGlass)"/>
+    <path d="M474 352c2-89 65-133 96-133 31 0 94 44 96 133-41 13-77 13-96-10-19 23-55 23-96 10Z" fill="url(#leafGlass)"/>
+    <path d="M512 403a210 210 0 1 0 162 343" fill="none" stroke="url(#iceGlass)" stroke-width="76" stroke-linecap="round"/>
+    <circle cx="512" cy="623" r="36" fill="#07123d" opacity=".94"/>
+    <path d="M253 510c22-96 74-164 137-191" fill="none" stroke="#fff" stroke-opacity=".56" stroke-width="17" stroke-linecap="round"/>
+    <path d="M590 242c25 12 46 35 57 64" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="14" stroke-linecap="round"/>
+    <path d="M395 755c68 44 173 53 251 17" fill="none" stroke="#ffced7" stroke-opacity=".26" stroke-width="20" stroke-linecap="round"/>
+  </g>
+</svg>

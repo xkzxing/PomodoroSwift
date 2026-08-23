@@ -70,6 +70,21 @@ struct ContentView: View {
                                 nsFont: settings.selectedNSFont,
                                 glassStyle: glassStyle
                             )
+                            .contentShape(Rectangle())
+                            .gesture(
+                                timerPanelDragGesture(
+                                    currentTimerBaseOffset: currentTimerBaseOffset,
+                                    containerSize: geometry.size,
+                                    safeAreaHeight: safeAreaHeight
+                                )
+                            )
+                            .onHover { hovering in
+                                if hovering {
+                                    NSCursor.openHand.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)
                             
@@ -116,26 +131,6 @@ struct ContentView: View {
                         .position(
                             x: timerPanelBasePosition.x + currentTimerBaseOffset.width + timerPanelLiveOffset.width,
                             y: timerPanelBasePosition.y + currentTimerBaseOffset.height + timerPanelLiveOffset.height
-                        )
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(
-                            DragGesture(minimumDistance: 8, coordinateSpace: .global)
-                                .onChanged { value in
-                                    timerPanelLiveOffset = value.translation
-                                }
-                                .onEnded { value in
-                                    let proposedOffset = CGSize(
-                                        width: currentTimerBaseOffset.width + value.translation.width,
-                                        height: currentTimerBaseOffset.height + value.translation.height
-                                    )
-                                    timerPanelOffset = clampedTimerPanelOffset(
-                                        proposedOffset,
-                                        in: geometry.size,
-                                        safeAreaHeight: safeAreaHeight
-                                    )
-                                    timerPanelLiveOffset = .zero
-                                    persistTimerPanelOffset()
-                                }
                         )
                         .onAppear {
                             loadTimerPanelOffsetIfNeeded()
@@ -342,6 +337,30 @@ struct ContentView: View {
             width: min(max(proposedOffset.width, minX), maxX),
             height: min(max(proposedOffset.height, minY), maxY)
         )
+    }
+
+    private func timerPanelDragGesture(
+        currentTimerBaseOffset: CGSize,
+        containerSize: CGSize,
+        safeAreaHeight: CGFloat
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { value in
+                timerPanelLiveOffset = value.translation
+            }
+            .onEnded { value in
+                let proposedOffset = CGSize(
+                    width: currentTimerBaseOffset.width + value.translation.width,
+                    height: currentTimerBaseOffset.height + value.translation.height
+                )
+                timerPanelOffset = clampedTimerPanelOffset(
+                    proposedOffset,
+                    in: containerSize,
+                    safeAreaHeight: safeAreaHeight
+                )
+                timerPanelLiveOffset = .zero
+                persistTimerPanelOffset()
+            }
     }
     
     private func persistTimerPanelOffset() {

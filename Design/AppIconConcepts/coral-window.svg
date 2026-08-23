@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#304fa4"/>
+      <stop offset=".54" stop-color="#172760"/>
+      <stop offset="1" stop-color="#070d2d"/>
+    </linearGradient>
+    <linearGradient id="tomato" x1=".1" y1="0" x2=".9" y2="1">
+      <stop offset="0" stop-color="#fff4ee" stop-opacity=".85"/>
+      <stop offset=".25" stop-color="#ff8977" stop-opacity=".84"/>
+      <stop offset="1" stop-color="#a91048" stop-opacity=".78"/>
+    </linearGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".96"/>
+      <stop offset="1" stop-color="#ffc4c6" stop-opacity=".64"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e5ffc0"/>
+      <stop offset=".4" stop-color="#54d68c"/>
+      <stop offset="1" stop-color="#087761"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18" result="b"/><feOffset in="b" dy="25" result="o"/>
+      <feColorMatrix in="o" type="matrix" values="0 0 0 0 .19 0 0 0 0 .01 0 0 0 0 .12 0 0 0 .48 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <g filter="url(#shadow)">
+    <ellipse cx="512" cy="570" rx="288" ry="264" fill="url(#tomato)"/>
+    <path d="M424 367c-53-70-30-122 17-132 47 20 71 70 72 128-34 18-62 20-89 4ZM600 367c53-70 30-122-17-132-47 20-71 70-72 128 34 18 62 20 89 4Z" fill="url(#leaf)"/>
+    <rect x="365" y="429" width="294" height="294" rx="147" fill="url(#window)"/>
+    <path d="M512 487a88 88 0 1 0 69 142" fill="none" stroke="#a80c48" stroke-width="52" stroke-linecap="round"/>
+    <circle cx="512" cy="574" r="25" fill="#a80c48"/>
+    <path d="M312 485c36-72 103-117 163-126" fill="none" stroke="#fff" stroke-opacity=".64" stroke-width="18" stroke-linecap="round"/>
+    <path d="M418 454c22-20 51-32 79-36" fill="none" stroke="#fff" stroke-opacity=".68" stroke-width="9" stroke-linecap="round"/>
+  </g>
+</svg>

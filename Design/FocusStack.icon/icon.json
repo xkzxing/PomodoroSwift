@@ -1,0 +1,196 @@
+{
+  "color-space-for-untagged-svg-colors": "display-p3",
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.035,0.075,0.260,1",
+          "display-p3:0.115,0.025,0.330,1"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.12,
+            "y": 0.04
+          },
+          "stop": {
+            "x": 0.88,
+            "y": 0.96
+          }
+        }
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.015,0.025,0.120,1",
+          "display-p3:0.065,0.008,0.160,1"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.12,
+            "y": 0.04
+          },
+          "stop": {
+            "x": 0.88,
+            "y": 0.96
+          }
+        }
+      }
+    },
+    {
+      "appearance": "tinted",
+      "value": "automatic"
+    }
+  ],
+  "groups": [
+    {
+      "blur": 0.34,
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.63,0.29,1,0.86",
+                  "display-p3:0.30,0.14,0.92,0.74"
+                ]
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.48,0.20,0.86,0.76",
+                  "display-p3:0.18,0.08,0.56,0.68"
+                ]
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": "automatic"
+            }
+          ],
+          "glass": true,
+          "image-name": "back-pane.svg",
+          "name": "Violet rear pane"
+        }
+      ],
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.3
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.63
+      }
+    },
+    {
+      "blur": 0.42,
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.25,0.92,1,0.72",
+                  "display-p3:0.20,0.45,1,0.68"
+                ]
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "linear-gradient": [
+                  "display-p3:0.18,0.65,0.92,0.68",
+                  "display-p3:0.14,0.30,0.78,0.62"
+                ]
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": "automatic"
+            }
+          ],
+          "glass": true,
+          "image-name": "front-pane.svg",
+          "name": "Aqua front pane"
+        }
+      ],
+      "lighting": "individual",
+      "shadow": {
+        "kind": "layer-color",
+        "opacity": 0.28
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.7
+      }
+    },
+    {
+      "blur": 0.12,
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "display-p3:1,1,1,0.95"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.92,0.96,1,0.92"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": "automatic"
+            }
+          ],
+          "glass": true,
+          "image-name": "timer.svg",
+          "name": "Countdown"
+        },
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "display-p3:1,1,1,0.95"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "display-p3:0.92,0.96,1,0.92"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": "automatic"
+            }
+          ],
+          "glass": true,
+          "image-name": "tasks.svg",
+          "name": "Tasks"
+        }
+      ],
+      "lighting": "combined",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.16
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.35
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
