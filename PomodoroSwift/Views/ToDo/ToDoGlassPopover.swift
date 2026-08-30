@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ToDoGlassPopover: View {
     @ObservedObject var glassSettings: ToDoGlassSettings
-    var onResetLayout: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -62,27 +61,6 @@ struct ToDoGlassPopover: View {
                 }
             }
 
-            Divider()
-
-            Button(action: {
-                if let onResetLayout = onResetLayout {
-                    onResetLayout()
-                } else {
-                    glassSettings.offsetX = 0
-                    glassSettings.offsetY = 0
-                    glassSettings.extraHeight = 0
-                    glassSettings.extraWidth = 0
-                }
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 11))
-                    Text("重置位置和大小")
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(.blue)
-            }
-            .buttonStyle(.plain)
         }
         .padding(14)
         .frame(width: 220)

@@ -8,20 +8,7 @@ import UserNotifications
 import Combine
 import AppKit
 
-enum TimerMode {
-    case work
-    case shortBreak
-    case longBreak
-    
-    var displayName: String {
-        switch self {
-        case .work: return "Focus"
-        case .shortBreak: return "Short Break"
-        case .longBreak: return "Long Break"
-        }
-    }
-}
-
+@MainActor
 class PomodoroTimer: ObservableObject {
     @Published var timeRemaining: Int
     @Published var isRunning = false
@@ -32,17 +19,13 @@ class PomodoroTimer: ObservableObject {
     private var timer: Timer?
     private var totalTime: Int
     private var delayedRestartTimer: Timer?
-    private var workTime: Int
-    private var breakTime: Int
-    private var longBreakTime: Int
+    private var schedule: PomodoroSchedule
     private var restartObserver: NSObjectProtocol?
     private var appActiveObserver: NSObjectProtocol?
     
     // Wall-clock based timing
     private var startDate: Date?
     private var timeRemainingAtStart: Int = 0
-    
-    private let sessionsBeforeLongBreak = 4
     
     static let workNotificationCategoryID = "POMODORO_WORK_COMPLETE"
     static let breakNotificationCategoryID = "POMODORO_BREAK_COMPLETE"
@@ -52,11 +35,14 @@ class PomodoroTimer: ObservableObject {
     static let actionDismiss = "DISMISS"
     
     init(workMinutes: Int, breakMinutes: Int = 5, longBreakMinutes: Int = 15) {
-        self.workTime = workMinutes * 60
-        self.breakTime = breakMinutes * 60
-        self.longBreakTime = longBreakMinutes * 60
-        self.totalTime = workMinutes * 60
-        self.timeRemaining = workMinutes * 60
+        let schedule = PomodoroSchedule(
+            workMinutes: workMinutes,
+            breakMinutes: breakMinutes,
+            longBreakMinutes: longBreakMinutes
+        )
+        self.schedule = schedule
+        self.totalTime = schedule.workDuration
+        self.timeRemaining = schedule.workDuration
         setupNotificationCategory()
         setupNotificationObserver()
         setupAppActiveObserver()
@@ -164,6 +150,7 @@ class PomodoroTimer: ObservableObject {
     
     func start() {
         guard !isRunning else { return }
+        cancelDelayedRestart()
         isRunning = true
         isCompleted = false
         
@@ -178,6 +165,7 @@ class PomodoroTimer: ObservableObject {
     }
     
     func pause() {
+        cancelDelayedRestart()
         // Set isRunning false FIRST to prevent re-entrant complete() if time happens to be 0
         isRunning = false
         // Snapshot the current remaining time before clearing startDate
@@ -191,6 +179,7 @@ class PomodoroTimer: ObservableObject {
     }
     
     func reset() {
+        cancelDelayedRestart()
         isRunning = false
         timer?.invalidate()
         timer = nil
@@ -201,14 +190,12 @@ class PomodoroTimer: ObservableObject {
     
     /// Fully reset back to work mode (initial state)
     func resetToWork() {
+        cancelDelayedRestart()
         isRunning = false
         timer?.invalidate()
         timer = nil
         startDate = nil
-        currentMode = .work
-        totalTime = workTime
-        timeRemaining = workTime
-        isCompleted = false
+        prepare(mode: .work)
     }
     
     private func complete() {
@@ -235,7 +222,7 @@ class PomodoroTimer: ObservableObject {
         switch currentMode {
         case .work:
             content.title = "Work Session Complete!"
-            if sessionCount % sessionsBeforeLongBreak == 0 {
+            if schedule.nextMode(after: .work, completedWorkSessions: sessionCount) == .longBreak {
                 content.body = "Great work! Time for a long break."
             } else {
                 content.body = "Great work! Time for a short break."
@@ -260,22 +247,27 @@ class PomodoroTimer: ObservableObject {
     
     // Public method for handling notification actions
     func restartTimer(afterDelay seconds: Int = 0) {
-        delayedRestartTimer?.invalidate()
-        startNextMode()
+        cancelDelayedRestart()
+
+        guard seconds > 0 else {
+            startNextMode()
+            return
+        }
+
+        delayedRestartTimer = Timer.scheduledTimer(
+            withTimeInterval: TimeInterval(seconds),
+            repeats: false
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.delayedRestartTimer = nil
+            self.startNextMode()
+        }
     }
     
     // Start a specific break mode from notification
     func startBreak(long: Bool) {
         if currentMode == .work {
-            if long {
-                currentMode = .longBreak
-                totalTime = longBreakTime
-            } else {
-                currentMode = .shortBreak
-                totalTime = breakTime
-            }
-            timeRemaining = totalTime
-            isCompleted = false
+            prepare(mode: long ? .longBreak : .shortBreak)
             start()
         } else {
             startNextMode()
@@ -283,41 +275,39 @@ class PomodoroTimer: ObservableObject {
     }
     
     func updateTime(workMinutes: Int, breakMinutes: Int? = nil, longBreakMinutes: Int? = nil) {
-        self.workTime = workMinutes * 60
-        if let breakMinutes = breakMinutes {
-            self.breakTime = breakMinutes * 60
-        }
-        if let longBreakMinutes = longBreakMinutes {
-            self.longBreakTime = longBreakMinutes * 60
-        }
+        schedule.update(
+            workMinutes: workMinutes,
+            breakMinutes: breakMinutes,
+            longBreakMinutes: longBreakMinutes
+        )
         
         // Update current time if not running and in work mode
         if !isRunning && currentMode == .work {
-            self.totalTime = workTime
-            self.timeRemaining = workTime
+            totalTime = schedule.workDuration
+            timeRemaining = totalTime
         }
     }
     
     func startNextMode() {
-        // Determine next mode
-        switch currentMode {
-        case .work:
-            if sessionCount % sessionsBeforeLongBreak == 0 {
-                currentMode = .longBreak
-                totalTime = longBreakTime
-            } else {
-                currentMode = .shortBreak
-                totalTime = breakTime
-            }
-        case .shortBreak, .longBreak:
-            currentMode = .work
-            totalTime = workTime
-        }
-        
-        // Reset and start
+        let nextMode = schedule.nextMode(
+            after: currentMode,
+            completedWorkSessions: sessionCount
+        )
+        prepare(mode: nextMode)
+        start()
+    }
+
+    private func prepare(mode: TimerMode) {
+        cancelDelayedRestart()
+        currentMode = mode
+        totalTime = schedule.duration(for: mode)
         timeRemaining = totalTime
         isCompleted = false
-        start()
+    }
+
+    private func cancelDelayedRestart() {
+        delayedRestartTimer?.invalidate()
+        delayedRestartTimer = nil
     }
     
     var formattedTime: String {

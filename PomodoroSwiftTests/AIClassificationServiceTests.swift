@@ -14,10 +14,10 @@ final class AIClassificationServiceTests: XCTestCase {
         MockURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
             let content = "{\"assignments\":[{\"panelId\":\"\(panelId.uuidString)\",\"tasks\":[\"Task A\",\"Task B\"]}]}"
-            let body = "{\"choices\":[{\"message\":{\"content\":\"\(content)\"}}]}"
+            let body = try makeResponseBody(content: content)
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -36,10 +36,10 @@ final class AIClassificationServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             let fenced = "```json\\n{\"assignments\":[{\"panelId\":\"\(panelId.uuidString)\",\"tasks\":[\"Task C\"]}]}\\n```"
-            let body = "{\"choices\":[{\"message\":{\"content\":\"\(fenced)\"}}]}"
+            let body = try makeResponseBody(content: fenced)
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -88,10 +88,10 @@ final class AIClassificationServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             let hugeText = String(repeating: "A", count: 300)
-            let body = "{\"choices\":[{\"message\":{\"content\":\"\(hugeText)\"}}]}"
+            let body = try makeResponseBody(content: hugeText)
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -121,10 +121,10 @@ final class AIClassificationServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             let repeated = String(repeating: "哈", count: 80)
-            let body = "{\"choices\":[{\"message\":{\"content\":\"\(repeated)\"}}]}"
+            let body = try makeResponseBody(content: repeated)
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -148,10 +148,10 @@ final class AIClassificationServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             try await Task.sleep(nanoseconds: 300_000_000)
-            let body = "{\"choices\":[{\"message\":{\"content\":\"{}\"}}]}"
+            let body = try makeResponseBody(content: "{}")
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -188,18 +188,18 @@ final class AIClassificationServiceTests: XCTestCase {
             lock.unlock()
 
             if currentCall == 1 {
-                let body = "{\"choices\":[{\"message\":{\"content\":\"not-json\"}}]}"
+                let body = try makeResponseBody(content: "not-json")
                 return (
                     HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                    Data(body.utf8)
+                    body
                 )
             }
 
             let content = "{\"assignments\":[{\"panelId\":\"\(panelId.uuidString)\",\"tasks\":[\"Task D\"]}]}"
-            let body = "{\"choices\":[{\"message\":{\"content\":\"\(content)\"}}]}"
+            let body = try makeResponseBody(content: content)
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-                Data(body.utf8)
+                body
             )
         }
 
@@ -230,10 +230,18 @@ final class AIClassificationServiceTests: XCTestCase {
     }
 }
 
+private func makeResponseBody(content: String) throws -> Data {
+    try JSONSerialization.data(withJSONObject: [
+        "choices": [
+            ["message": ["content": content]]
+        ]
+    ])
+}
+
 private final class MockURLProtocol: URLProtocol {
     static var requestHandler: ((URLRequest) async throws -> (HTTPURLResponse, Data))?
 
-    private var task: Task<Void, Never>?
+    private var loadingTask: Task<Void, Never>?
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -249,7 +257,7 @@ private final class MockURLProtocol: URLProtocol {
             return
         }
 
-        task = Task {
+        loadingTask = Task {
             do {
                 let (response, data) = try await handler(request)
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -262,7 +270,7 @@ private final class MockURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {
-        task?.cancel()
-        task = nil
+        loadingTask?.cancel()
+        loadingTask = nil
     }
 }

@@ -18,6 +18,8 @@ struct ContentView: View {
     @State private var timerPanelOffset: CGSize = .zero
     @State private var timerPanelLiveOffset: CGSize = .zero
     @State private var didLoadTimerPanelOffset = false
+    @State private var todoPanelGroupLiveOffset: CGSize = .zero
+    @State private var todoPanelGroupLiveWidthDelta: CGFloat = 0
     
     init() {
         let settings = Settings()
@@ -152,9 +154,8 @@ struct ContentView: View {
                                 .allowsHitTesting(true)
                         }
 
-                        // To-Do Panels (pinned bottom, above TimeSelector)
-                        let bottomPadding: CGFloat = (!timer.isRunning && !timer.isCompleted && timer.currentMode == .work) ? 100 : 16
-                        todoPanelsLayer(geometry: geometry, bottomPadding: bottomPadding, glassStyle: glassStyle)
+                        // To-Do Panels (single top-to-bottom stack)
+                        todoPanelsLayer(geometry: geometry, glassStyle: glassStyle)
                     }
                     .animation(.easeInOut(duration: 0.5), value: timer.isRunning)
                     .animation(.easeInOut(duration: 0.5), value: timer.isCompleted)
@@ -470,17 +471,165 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func todoPanelsLayer(geometry: GeometryProxy, bottomPadding: CGFloat, glassStyle: Glass) -> some View {
-        ForEach(settings.todoPanels) { panel in
-            ToDoView(
-                panel: panel,
-                containerSize: geometry.size,
-                glassEffect: glassStyle,
-                listMaxHeight: 180
-            )
-            .id("\(panel.id.uuidString)-\(settings.sidebarDarkMode ? "dark" : "light")")
-            .environmentObject(settings)
+    private func todoPanelsLayer(geometry: GeometryProxy, glassStyle: Glass) -> some View {
+        let maximumPanelWidth = max(geometry.size.width - 24, 240)
+        let basePanelWidth = min(max(CGFloat(settings.todoPanelGroupWidth), 240), maximumPanelWidth)
+        let panelWidth = min(max(basePanelWidth + todoPanelGroupLiveWidthDelta, 240), maximumPanelWidth)
+        let liveWidthChange = panelWidth - basePanelWidth
+        let groupOffset = clampedToDoPanelGroupOffset(
+            CGSize(
+                width: CGFloat(settings.todoPanelGroupOffsetX)
+                    + todoPanelGroupLiveOffset.width
+                    + liveWidthChange / 2,
+                height: CGFloat(settings.todoPanelGroupOffsetY) + todoPanelGroupLiveOffset.height
+            ),
+            in: geometry.size,
+            panelWidth: panelWidth
+        )
+
+        VStack(spacing: 0) {
+            ForEach(Array(settings.todoPanels.enumerated()), id: \.element.id) { index, panel in
+                ToDoView(
+                    panel: panel,
+                    isFirst: index == settings.todoPanels.startIndex,
+                    isLast: index == settings.todoPanels.count - 1,
+                    glassEffect: glassStyle,
+                    listMaxHeight: CGFloat(panel.expandedHeight),
+                    onGroupDragChanged: { translation in
+                        todoPanelGroupLiveOffset = translation
+                    },
+                    onGroupDragEnded: { translation in
+                        finishToDoPanelGroupDrag(
+                            translation,
+                            in: geometry.size,
+                            panelWidth: panelWidth
+                        )
+                    },
+                    onExpandedHeightChanged: { height in
+                        updateToDoPanelExpandedHeight(panelID: panel.id, height: height)
+                    }
+                )
+                .id("\(panel.id.uuidString)-\(settings.sidebarDarkMode ? "dark" : "light")")
+                .environmentObject(settings)
+            }
         }
+        .frame(width: panelWidth)
+        .overlay(alignment: .trailing) {
+            todoPanelGroupWidthResizeHandle(
+                containerSize: geometry.size,
+                basePanelWidth: basePanelWidth,
+                maximumPanelWidth: maximumPanelWidth
+            )
+        }
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 8)
+        .padding(.top, 12)
+        .offset(x: groupOffset.width, y: groupOffset.height)
+    }
+
+    private func todoPanelGroupWidthResizeHandle(
+        containerSize: CGSize,
+        basePanelWidth: CGFloat,
+        maximumPanelWidth: CGFloat
+    ) -> some View {
+        Rectangle()
+            .fill(.clear)
+            .frame(width: 14)
+            .contentShape(Rectangle())
+            .overlay {
+                Capsule()
+                    .fill(fontColor.opacity(0.28))
+                    .frame(width: 3, height: 36)
+                    .allowsHitTesting(false)
+            }
+            .gesture(
+                DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { value in
+                        todoPanelGroupLiveWidthDelta = value.translation.width
+                    }
+                    .onEnded { value in
+                        finishToDoPanelGroupWidthResize(
+                            value.translation.width,
+                            in: containerSize,
+                            basePanelWidth: basePanelWidth,
+                            maximumPanelWidth: maximumPanelWidth
+                        )
+                    }
+            )
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+    }
+
+    private func clampedToDoPanelGroupOffset(
+        _ proposedOffset: CGSize,
+        in containerSize: CGSize,
+        panelWidth: CGFloat
+    ) -> CGSize {
+        let minimumVisibleWidth = min(panelWidth, 80)
+        let minimumX = minimumVisibleWidth - containerSize.width / 2 - panelWidth / 2
+        let maximumX = containerSize.width / 2 + panelWidth / 2 - minimumVisibleWidth
+        let minimumY: CGFloat = -12
+        let maximumY = max(containerSize.height - 60, minimumY)
+
+        return CGSize(
+            width: min(max(proposedOffset.width, minimumX), maximumX),
+            height: min(max(proposedOffset.height, minimumY), maximumY)
+        )
+    }
+
+    private func finishToDoPanelGroupDrag(
+        _ translation: CGSize,
+        in containerSize: CGSize,
+        panelWidth: CGFloat
+    ) {
+        let proposedOffset = CGSize(
+            width: CGFloat(settings.todoPanelGroupOffsetX) + translation.width,
+            height: CGFloat(settings.todoPanelGroupOffsetY) + translation.height
+        )
+        let clampedOffset = clampedToDoPanelGroupOffset(
+            proposedOffset,
+            in: containerSize,
+            panelWidth: panelWidth
+        )
+
+        settings.todoPanelGroupOffsetX = Double(clampedOffset.width)
+        settings.todoPanelGroupOffsetY = Double(clampedOffset.height)
+        todoPanelGroupLiveOffset = .zero
+    }
+
+    private func finishToDoPanelGroupWidthResize(
+        _ horizontalTranslation: CGFloat,
+        in containerSize: CGSize,
+        basePanelWidth: CGFloat,
+        maximumPanelWidth: CGFloat
+    ) {
+        let newWidth = min(max(basePanelWidth + horizontalTranslation, 240), maximumPanelWidth)
+        let widthChange = newWidth - basePanelWidth
+        let proposedOffset = CGSize(
+            width: CGFloat(settings.todoPanelGroupOffsetX) + widthChange / 2,
+            height: CGFloat(settings.todoPanelGroupOffsetY)
+        )
+        let clampedOffset = clampedToDoPanelGroupOffset(
+            proposedOffset,
+            in: containerSize,
+            panelWidth: newWidth
+        )
+
+        settings.todoPanelGroupWidth = Double(newWidth)
+        settings.todoPanelGroupOffsetX = Double(clampedOffset.width)
+        todoPanelGroupLiveWidthDelta = 0
+    }
+
+    private func updateToDoPanelExpandedHeight(panelID: UUID, height: CGFloat) {
+        guard let index = settings.todoPanels.firstIndex(where: { $0.id == panelID }) else {
+            return
+        }
+        settings.todoPanels[index].expandedHeight = Double(height)
     }
 }
 

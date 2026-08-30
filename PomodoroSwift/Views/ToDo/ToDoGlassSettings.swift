@@ -31,20 +31,6 @@ class ToDoGlassSettings: ObservableObject {
         didSet { UserDefaults.standard.set(panelExpanded, forKey: key("todoPanelExpanded")) }
     }
 
-    @Published var offsetX: Double {
-        didSet { UserDefaults.standard.set(offsetX, forKey: key("todoOffsetX")) }
-    }
-    @Published var offsetY: Double {
-        didSet { UserDefaults.standard.set(offsetY, forKey: key("todoOffsetY")) }
-    }
-
-    @Published var extraHeight: Double {
-        didSet { UserDefaults.standard.set(extraHeight, forKey: key("todoExtraHeight")) }
-    }
-    @Published var extraWidth: Double {
-        didSet { UserDefaults.standard.set(extraWidth, forKey: key("todoExtraWidth")) }
-    }
-
     init(panelId: UUID) {
         self.panelId = panelId
 
@@ -77,12 +63,6 @@ class ToDoGlassSettings: ObservableObject {
 
         self.fontDark = migrate(base: "todoFontDark", type: Bool.self) ?? false
         self.panelExpanded = migrate(base: "todoPanelExpanded", type: Bool.self) ?? true
-
-        let jitter = Double(panelId.uuidString.first?.hexDigitValue ?? 0) * 5.0
-        self.offsetX = migrate(base: "todoOffsetX", type: Double.self) ?? (60 + jitter)
-        self.offsetY = migrate(base: "todoOffsetY", type: Double.self) ?? (100 + jitter)
-        self.extraHeight = migrate(base: "todoExtraHeight", type: Double.self) ?? 0
-        self.extraWidth = migrate(base: "todoExtraWidth", type: Double.self) ?? 0
 
         UserDefaults.standard.set(true, forKey: "hasMigratedLegacyGlass")
     }

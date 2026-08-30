@@ -10,10 +10,32 @@ import AppKit
 struct ToDoPanel: Identifiable, Codable, Equatable {
     var id: UUID
     var title: String
+    var expandedHeight: Double
 
-    init(id: UUID = UUID(), title: String = "To-Do") {
+    init(id: UUID = UUID(), title: String = "To-Do", expandedHeight: Double = 180) {
         self.id = id
         self.title = title
+        self.expandedHeight = expandedHeight
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case expandedHeight
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        expandedHeight = try container.decodeIfPresent(Double.self, forKey: .expandedHeight) ?? 180
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(expandedHeight, forKey: .expandedHeight)
     }
 }
 
@@ -141,6 +163,24 @@ class Settings: ObservableObject {
             if let data = try? JSONEncoder().encode(todoPanels) {
                 UserDefaults.standard.set(data, forKey: "todoPanels")
             }
+        }
+    }
+
+    @Published var todoPanelGroupWidth: Double {
+        didSet {
+            UserDefaults.standard.set(todoPanelGroupWidth, forKey: "todoPanelGroupWidth")
+        }
+    }
+
+    @Published var todoPanelGroupOffsetX: Double {
+        didSet {
+            UserDefaults.standard.set(todoPanelGroupOffsetX, forKey: "todoPanelGroupOffsetX")
+        }
+    }
+
+    @Published var todoPanelGroupOffsetY: Double {
+        didSet {
+            UserDefaults.standard.set(todoPanelGroupOffsetY, forKey: "todoPanelGroupOffsetY")
         }
     }
     
@@ -277,6 +317,12 @@ class Settings: ObservableObject {
         self.sidebarDarkMode = UserDefaults.standard.object(forKey: "sidebarDarkMode") == nil
             ? true
             : UserDefaults.standard.bool(forKey: "sidebarDarkMode")
+
+        self.todoPanelGroupWidth = UserDefaults.standard.object(forKey: "todoPanelGroupWidth") == nil
+            ? 420
+            : UserDefaults.standard.double(forKey: "todoPanelGroupWidth")
+        self.todoPanelGroupOffsetX = UserDefaults.standard.double(forKey: "todoPanelGroupOffsetX")
+        self.todoPanelGroupOffsetY = UserDefaults.standard.double(forKey: "todoPanelGroupOffsetY")
         
         if let data = UserDefaults.standard.data(forKey: "todoPanels"),
            let decoded = try? JSONDecoder().decode([ToDoPanel].self, from: data) {
