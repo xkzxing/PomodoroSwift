@@ -45,8 +45,8 @@ final class DashScopeAIToDoClassificationService: AIToDoClassificationService {
     private let maxRetryCount: Int
 
     init(
-        endpoint: URL = URL(string: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")!,
-        model: String = "qwen-plus",
+        endpoint: URL = DashScopeConfiguration.endpoint,
+        model: String = DashScopeConfiguration.model,
         session: URLSession? = nil,
         timeoutSeconds: TimeInterval = 20,
         maxResponseBytes: Int = 24 * 1024,
@@ -305,12 +305,14 @@ private struct ChatCompletionRequest: Encodable {
     let messages: [ChatMessage]
     let temperature: Double
     let responseFormat: ResponseFormat?
+    let enableThinking = false
 
     enum CodingKeys: String, CodingKey {
         case model
         case messages
         case temperature
         case responseFormat = "response_format"
+        case enableThinking = "enable_thinking"
     }
 }
 

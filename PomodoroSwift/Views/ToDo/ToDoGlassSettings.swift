@@ -31,7 +31,7 @@ class ToDoGlassSettings: ObservableObject {
         didSet { UserDefaults.standard.set(panelExpanded, forKey: key("todoPanelExpanded")) }
     }
 
-    init(panelId: UUID) {
+    init(panelId: UUID, migrateLegacy: Bool = true) {
         self.panelId = panelId
 
         func k(_ base: String) -> String { "\(base)_\(panelId.uuidString)" }
@@ -41,7 +41,7 @@ class ToDoGlassSettings: ObservableObject {
             if UserDefaults.standard.object(forKey: uniqueKey) != nil {
                 return UserDefaults.standard.object(forKey: uniqueKey) as? T
             }
-            if !UserDefaults.standard.bool(forKey: "hasMigratedLegacyGlass") {
+            if migrateLegacy && !UserDefaults.standard.bool(forKey: "hasMigratedLegacyGlass") {
                 if UserDefaults.standard.object(forKey: base) != nil {
                     let val = UserDefaults.standard.object(forKey: base) as? T
                     UserDefaults.standard.set(val, forKey: uniqueKey)
@@ -58,18 +58,19 @@ class ToDoGlassSettings: ObservableObject {
         } else {
             self.tintColor = .white
         }
-        let savedOpacity = migrate(base: "todoGlassTintOpacity", type: Double.self) ?? 0
-        self.tintOpacity = savedOpacity != 0 ? savedOpacity : 0.15
+        self.tintOpacity = migrate(base: "todoGlassTintOpacity", type: Double.self) ?? 0.15
 
         self.fontDark = migrate(base: "todoFontDark", type: Bool.self) ?? false
         self.panelExpanded = migrate(base: "todoPanelExpanded", type: Bool.self) ?? true
 
-        UserDefaults.standard.set(true, forKey: "hasMigratedLegacyGlass")
+        if migrateLegacy {
+            UserDefaults.standard.set(true, forKey: "hasMigratedLegacyGlass")
+        }
     }
 
     static let variants: [(String, String)] = [
-        ("Clear", "clear"),
-        ("Regular", "regular")
+        ("清透", "clear"),
+        ("常规", "regular")
     ]
 
     func buildGlass() -> Glass {

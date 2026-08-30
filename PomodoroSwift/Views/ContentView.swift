@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var settings = Settings()
     @StateObject private var timer: PomodoroTimer
     @StateObject private var noiseManager = WhiteNoiseManager()
+    @StateObject private var weeklySchedule = WeeklyScheduleStore()
     @State private var showSidebar = false
     @State private var isSidebarToggleHovered = false
     @State private var isSidebarTogglePressed = false
@@ -156,6 +157,15 @@ struct ContentView: View {
 
                         // To-Do Panels (single top-to-bottom stack)
                         todoPanelsLayer(geometry: geometry, glassStyle: glassStyle)
+
+                        if weeklySchedule.preferences.isVisible {
+                            WeeklySchedulePanel(
+                                store: weeklySchedule,
+                                containerSize: geometry.size,
+                                glassEffect: glassStyle
+                            )
+                            .environmentObject(settings)
+                        }
                     }
                     .animation(.easeInOut(duration: 0.5), value: timer.isRunning)
                     .animation(.easeInOut(duration: 0.5), value: timer.isCompleted)
@@ -211,7 +221,7 @@ struct ContentView: View {
                 
                 // Settings Content
                 ScrollView {
-                    SettingsView(settings: settings)
+                    SettingsView(settings: settings, weeklySchedule: weeklySchedule)
                         .padding(20)
                 }
             }

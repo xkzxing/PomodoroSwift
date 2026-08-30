@@ -12,7 +12,7 @@ struct ToDoGlassPopover: View {
                 Divider()
 
                 HStack {
-                    Text("Variant")
+                    Text("玻璃样式")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -26,7 +26,7 @@ struct ToDoGlassPopover: View {
                 }
 
                 HStack {
-                    Text("Tint Color")
+                    Text("着色")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -36,7 +36,7 @@ struct ToDoGlassPopover: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Text("Tint Opacity")
+                        Text("着色不透明度")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -48,13 +48,13 @@ struct ToDoGlassPopover: View {
                 }
 
                 HStack {
-                    Text("Font Color")
+                    Text("文字颜色")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Picker("", selection: $glassSettings.fontDark) {
-                        Text("Light").tag(false)
-                        Text("Dark").tag(true)
+                        Text("浅色").tag(false)
+                        Text("深色").tag(true)
                     }
                     .labelsHidden()
                     .frame(width: 100)

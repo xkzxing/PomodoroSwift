@@ -13,6 +13,10 @@ final class AIClassificationServiceTests: XCTestCase {
 
         MockURLProtocol.requestHandler = { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
+            let payload = try JSONSerialization.jsonObject(with: requestBodyData(request)) as! [String: Any]
+            XCTAssertEqual(payload["model"] as? String, "qwen3.8-flash")
+            XCTAssertEqual(payload["enable_thinking"] as? Bool, false)
+            XCTAssertNil(payload["extra_body"])
             let content = "{\"assignments\":[{\"panelId\":\"\(panelId.uuidString)\",\"tasks\":[\"Task A\",\"Task B\"]}]}"
             let body = try makeResponseBody(content: content)
             return (
@@ -228,6 +232,21 @@ final class AIClassificationServiceTests: XCTestCase {
             maxRetryCount: 1
         )
     }
+}
+
+private func requestBodyData(_ request: URLRequest) -> Data {
+    if let data = request.httpBody { return data }
+    guard let stream = request.httpBodyStream else { return Data() }
+    stream.open()
+    defer { stream.close() }
+    var result = Data()
+    var buffer = [UInt8](repeating: 0, count: 1024)
+    while stream.hasBytesAvailable {
+        let count = stream.read(&buffer, maxLength: buffer.count)
+        guard count > 0 else { break }
+        result.append(buffer, count: count)
+    }
+    return result
 }
 
 private func makeResponseBody(content: String) throws -> Data {

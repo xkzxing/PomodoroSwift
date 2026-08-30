@@ -1,5 +1,9 @@
 .DS_Store
 
+# Release archives are attached to releases instead of committed to source control.
+dist/*.zip
+dist/*.sha256
+
 # Xcode
 #
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore

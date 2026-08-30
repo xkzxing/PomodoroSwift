@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings: Settings
+    @ObservedObject var weeklySchedule: WeeklyScheduleStore
     @StateObject private var aiController = AIClassificationController()
 
     var body: some View {
@@ -15,6 +16,7 @@ struct SettingsView: View {
             SettingsTimerSection(settings: settings)
             SettingsWhiteNoiseSection(settings: settings)
             SettingsToDoPanelsSection(settings: settings)
+            SettingsWeeklyScheduleSection(store: weeklySchedule, settings: settings)
             SettingsAIClassifierSection(settings: settings, controller: aiController)
             SettingsGlassEffectSection(settings: settings)
             SettingsBackgroundSection(settings: settings)
@@ -25,6 +27,6 @@ struct SettingsView: View {
 
 #Preview {
     NavigationStack {
-        SettingsView(settings: Settings())
+        SettingsView(settings: Settings(), weeklySchedule: WeeklyScheduleStore())
     }
 }
