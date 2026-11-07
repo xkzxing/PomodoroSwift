@@ -20,12 +20,31 @@ enum WeeklyScheduleImportError: LocalizedError {
 struct WeeklySchedulePreferences: Codable, Equatable {
     var isVisible = true
     var includesWeekend = false
+    var firstDay: ScheduleFirstDay = .monday
     var startMinute = 8 * 60
     var endMinute = 17 * 60
+    var minimumFontSize: Double = 8
     var panelWidth: Double = 760
     var panelHeight: Double = 520
     var panelX: Double = 24
     var panelY: Double = 300
+
+    init() {}
+
+    // Existing installations have no firstDay key; preserve their layout and hours.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        isVisible = try values.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        includesWeekend = try values.decodeIfPresent(Bool.self, forKey: .includesWeekend) ?? false
+        firstDay = try values.decodeIfPresent(ScheduleFirstDay.self, forKey: .firstDay) ?? .monday
+        startMinute = try values.decodeIfPresent(Int.self, forKey: .startMinute) ?? 480
+        endMinute = try values.decodeIfPresent(Int.self, forKey: .endMinute) ?? 1020
+        minimumFontSize = try values.decodeIfPresent(Double.self, forKey: .minimumFontSize) ?? 8
+        panelWidth = try values.decodeIfPresent(Double.self, forKey: .panelWidth) ?? 760
+        panelHeight = try values.decodeIfPresent(Double.self, forKey: .panelHeight) ?? 520
+        panelX = try values.decodeIfPresent(Double.self, forKey: .panelX) ?? 24
+        panelY = try values.decodeIfPresent(Double.self, forKey: .panelY) ?? 300
+    }
 
     var weekdays: [ScheduleWeekday] {
         includesWeekend ? ScheduleWeekday.allCases : Array(ScheduleWeekday.allCases.prefix(5))
@@ -34,6 +53,7 @@ struct WeeklySchedulePreferences: Codable, Equatable {
     mutating func normalize() {
         startMinute = min(max(startMinute, 0), 1425)
         endMinute = min(max(endMinute, startMinute + 15), 1440)
+        minimumFontSize = minimumFontSize.isFinite ? min(max(minimumFontSize, 7), 11) : 8
         panelWidth = panelWidth.isFinite ? min(max(panelWidth, 360), 1600) : 760
         panelHeight = panelHeight.isFinite ? min(max(panelHeight, 320), 1200) : 520
         if !panelX.isFinite { panelX = 24 }
@@ -46,6 +66,7 @@ final class WeeklyScheduleStore: ObservableObject {
     static let eventsKey = "weeklySchedule.events.v1"
     static let preferencesKey = "weeklySchedule.preferences.v1"
     private let defaults: UserDefaults
+    let calendarStore: ScheduleCalendarStore
 
     @Published private(set) var events: [WeeklyScheduleEvent]
     @Published var preferences: WeeklySchedulePreferences {
@@ -54,7 +75,6 @@ final class WeeklyScheduleStore: ObservableObject {
             normalized.normalize()
             if normalized != preferences {
                 preferences = normalized
-                return
             }
             if let data = try? JSONEncoder().encode(preferences) {
                 defaults.set(data, forKey: Self.preferencesKey)
@@ -65,6 +85,7 @@ final class WeeklyScheduleStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        calendarStore = ScheduleCalendarStore(defaults: defaults)
         if let data = defaults.data(forKey: Self.eventsKey) {
             if let decoded = try? JSONDecoder().decode([WeeklyScheduleEvent].self, from: data),
                decoded.allSatisfy({ $0.validationMessage == nil }),

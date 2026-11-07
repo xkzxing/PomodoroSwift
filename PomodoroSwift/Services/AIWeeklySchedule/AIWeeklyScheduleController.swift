@@ -61,7 +61,7 @@ final class AIWeeklyScheduleController: ObservableObject {
                     }
                 }.count
                 if overlaps > 0 {
-                    self.notices.append("\(overlaps) 条日程与其他安排重叠，已并排保留；空闲统计不会重复扣除。")
+                    self.notices.append("\(overlaps) 条日程与其他固定安排重叠，已并排保留。")
                 }
                 let outsideRange = result.added.filter {
                     $0.startMinute < store.preferences.startMinute || $0.endMinute > store.preferences.endMinute

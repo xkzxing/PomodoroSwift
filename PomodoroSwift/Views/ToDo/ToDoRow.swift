@@ -2,7 +2,8 @@ import SwiftUI
 
 struct ToDoRow: View {
     let item: ToDoItem
-    let onToggle: () -> Void
+    let onTogglePin: () -> Void
+    let onToggleToday: () -> Void
     let onDelete: () -> Void
     let onEdit: (String) -> Void
 
@@ -14,18 +15,21 @@ struct ToDoRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
+            Button(action: onTogglePin) {
+                Image(systemName: item.isPinned ? "pin.fill" : "pin")
                     .font(.system(size: 16))
-                    .foregroundStyle(item.isDone ? .green.opacity(0.85) : textColor.opacity(0.5))
+                    .foregroundStyle(item.isPinned ? Color.blue : textColor.opacity(0.4))
+                    .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(item.isPinned ? "取消置顶" : "置顶")
+            .accessibilityLabel(item.isPinned ? "取消置顶" : "置顶")
 
             if isEditing {
                 TextField("", text: $editText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: item.isPinned ? .semibold : .regular))
                     .foregroundStyle(textColor)
                     .focused($editFocused)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -37,9 +41,8 @@ struct ToDoRow: View {
                     }
             } else {
                 Text(item.text)
-                    .font(.system(size: 13))
-                    .foregroundStyle(item.isDone ? textColor.opacity(0.35) : textColor.opacity(0.9))
-                    .strikethrough(item.isDone, color: textColor.opacity(0.35))
+                    .font(.system(size: 13, weight: item.isPinned ? .semibold : .regular))
+                    .foregroundStyle(textColor.opacity(0.9))
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .gesture(
@@ -53,20 +56,17 @@ struct ToDoRow: View {
                     )
             }
 
-            if isHovered && !isEditing {
-                Button(action: onDelete) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(textColor.opacity(0.5))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity)
-            }
+            ToDoTodayButton(isInToday: item.isInToday, textColor: textColor, action: onToggleToday)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(isHovered ? Color.white.opacity(0.06) : Color.clear)
+        .background(Color.white.opacity((item.isPinned ? 0.04 : 0) + (isHovered ? 0.06 : 0)))
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(item.isPinned ? "取消置顶" : "置顶", action: onTogglePin)
+            Button(item.isInToday ? "移出今日" : "固定到今日", action: onToggleToday)
+            Button("删除", role: .destructive, action: onDelete)
+        }
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.15), value: isHovered)
     }
@@ -75,5 +75,26 @@ struct ToDoRow: View {
         isEditing = false
         editFocused = false
         onEdit(editText)
+    }
+}
+
+struct ToDoTodayButton: View {
+    let isInToday: Bool
+    let textColor: Color
+    let action: () -> Void
+
+    private var label: String { isInToday ? "移出今日" : "固定到今日" }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isInToday ? "sun.max.fill" : "sun.max")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(textColor.opacity(isInToday ? 1 : 0.65))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 }

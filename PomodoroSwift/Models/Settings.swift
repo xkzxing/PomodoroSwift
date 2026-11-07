@@ -7,6 +7,24 @@ import SwiftUI
 import Combine
 import AppKit
 
+enum TimerDisplayStyle: String, CaseIterable, Identifiable {
+    case digital
+    case swiss
+    case gemstone
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .digital: return "Digital"
+        case .swiss: return "Swiss Clock"
+        case .gemstone: return "鎏金彩晶"
+        }
+    }
+
+    var isAnalog: Bool { self != .digital }
+}
+
 struct ToDoPanel: Identifiable, Codable, Equatable {
     var id: UUID
     var title: String
@@ -36,6 +54,34 @@ struct ToDoPanel: Identifiable, Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
         try container.encode(expandedHeight, forKey: .expandedHeight)
+    }
+
+    static func loadOrdinaryPanels(defaults: UserDefaults) -> [ToDoPanel] {
+        let migrationKey = "hasMigratedTodayPanel"
+        guard let data = defaults.data(forKey: "todoPanels") else {
+            defaults.set(true, forKey: migrationKey)
+            return [ToDoPanel()]
+        }
+        guard var panels = try? JSONDecoder().decode([ToDoPanel].self, from: data) else {
+            return [ToDoPanel()]
+        }
+        guard !defaults.bool(forKey: migrationKey) else { return panels }
+
+        let legacyMatches = panels.filter {
+            $0.title.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("Today") == .orderedSame
+        }
+        if let legacy = legacyMatches.first, legacyMatches.count == 1, panels.first?.id == legacy.id {
+            if ToDoStore.canRemoveEmptyLegacyPanel(legacy.id, defaults: defaults) {
+                panels.removeFirst()
+                if panels.isEmpty { panels.append(ToDoPanel()) }
+            } else {
+                panels[0].title = "原今日待办"
+            }
+            guard let updated = try? JSONEncoder().encode(panels) else { return panels }
+            defaults.set(updated, forKey: "todoPanels")
+        }
+        defaults.set(true, forKey: migrationKey)
+        return panels
     }
 }
 
@@ -91,6 +137,18 @@ enum CampfirePreset: String, CaseIterable {
 }
 
 class Settings: ObservableObject {
+    @Published var timerDisplayStyle: TimerDisplayStyle {
+        didSet {
+            UserDefaults.standard.set(timerDisplayStyle.rawValue, forKey: "timerDisplayStyle")
+        }
+    }
+
+    @Published var swissClockSize: Double {
+        didSet {
+            UserDefaults.standard.set(swissClockSize, forKey: "swissClockSize")
+        }
+    }
+
     @Published var selectedNSFont: NSFont {
         didSet {
             // Save font descriptor data
@@ -100,6 +158,12 @@ class Settings: ObservableObject {
         }
     }
     
+    @Published var backgroundTheme: BackgroundTheme {
+        didSet {
+            UserDefaults.standard.set(backgroundTheme.rawValue, forKey: "backgroundTheme")
+        }
+    }
+
     @Published var backgroundImageData: Data? {
         didSet {
             // Save to file system instead of UserDefaults (UserDefaults has 4MB limit)
@@ -136,17 +200,15 @@ class Settings: ObservableObject {
         }
     }
     
-    @Published var glassTintColor: Color {
+    @Published var settingsPanelColors: ScenePanelColors {
         didSet {
-            if let components = glassTintColor.cgColor?.components, components.count >= 3 {
-                UserDefaults.standard.set([components[0], components[1], components[2]], forKey: "glassTintColor")
-            }
+            UserDefaults.standard.set(settingsPanelColors.rawValue, forKey: "settingsPanelColors")
         }
     }
     
     @Published var glassTintOpacity: Double {
         didSet {
-            UserDefaults.standard.set(glassTintOpacity, forKey: "glassTintOpacity")
+            UserDefaults.standard.set(glassTintOpacity, forKey: Self.panelGlassTintKey)
         }
     }
     
@@ -154,6 +216,10 @@ class Settings: ObservableObject {
         didSet {
             UserDefaults.standard.set(glassInteractive, forKey: "glassInteractive")
         }
+    }
+
+    var panelGlassStyle: PanelGlassStyle {
+        PanelGlassStyle(variant: glassVariant, tintOpacity: glassTintOpacity, interactive: glassInteractive)
     }
 
     // Removed unused phantom variable glassButtonFontDark
@@ -280,6 +346,12 @@ class Settings: ObservableObject {
 
     
     init() {
+        self.timerDisplayStyle = TimerDisplayStyle(
+            rawValue: UserDefaults.standard.string(forKey: "timerDisplayStyle") ?? ""
+        ) ?? .digital
+        let storedClockSize = Self.storedDouble("swissClockSize", defaults: .standard, fallback: 300)
+        self.swissClockSize = storedClockSize.isFinite ? min(max(storedClockSize, 160), 520) : 300
+
         // Load saved font or use default
         if let data = UserDefaults.standard.data(forKey: "fontDescriptor"),
            let descriptor = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSFontDescriptor.self, from: data),
@@ -290,6 +362,7 @@ class Settings: ObservableObject {
             self.selectedNSFont = NSFont(name: "Helvetica Neue", size: 72) ?? NSFont.systemFont(ofSize: 72)
         }
         
+        self.backgroundTheme = BackgroundTheme(storedValue: UserDefaults.standard.string(forKey: "backgroundTheme"))
         self.backgroundImageData = Self.loadImageFromFile()
         self.selectedTime = UserDefaults.standard.integer(forKey: "selectedTime") != 0 
             ? UserDefaults.standard.integer(forKey: "selectedTime") 
@@ -305,14 +378,9 @@ class Settings: ObservableObject {
         
         // Load glass effect settings
         self.glassVariant = UserDefaults.standard.string(forKey: "glassVariant") ?? "regular"
-        if let colorArray = UserDefaults.standard.array(forKey: "glassTintColor") as? [CGFloat], colorArray.count >= 3 {
-            self.glassTintColor = Color(red: colorArray[0], green: colorArray[1], blue: colorArray[2])
-        } else {
-            self.glassTintColor = .white
-        }
-        self.glassTintOpacity = UserDefaults.standard.double(forKey: "glassTintOpacity") != 0 
-            ? UserDefaults.standard.double(forKey: "glassTintOpacity") 
-            : 0.15
+        self.settingsPanelColors = UserDefaults.standard.string(forKey: "settingsPanelColors")
+            .flatMap(ScenePanelColors.init(rawValue:)) ?? .chromeDefault()
+        self.glassTintOpacity = Self.panelGlassTintOpacity(defaults: .standard)
         self.glassInteractive = UserDefaults.standard.bool(forKey: "glassInteractive")
         self.sidebarDarkMode = UserDefaults.standard.object(forKey: "sidebarDarkMode") == nil
             ? true
@@ -324,12 +392,7 @@ class Settings: ObservableObject {
         self.todoPanelGroupOffsetX = UserDefaults.standard.double(forKey: "todoPanelGroupOffsetX")
         self.todoPanelGroupOffsetY = UserDefaults.standard.double(forKey: "todoPanelGroupOffsetY")
         
-        if let data = UserDefaults.standard.data(forKey: "todoPanels"),
-           let decoded = try? JSONDecoder().decode([ToDoPanel].self, from: data) {
-            self.todoPanels = decoded
-        } else {
-            self.todoPanels = [ToDoPanel(title: "To-Do")]
-        }
+        self.todoPanels = ToDoPanel.loadOrdinaryPanels(defaults: .standard)
         
         // Load white noise settings
         self.whiteNoiseEnabled = UserDefaults.standard.bool(forKey: "whiteNoiseEnabled")
@@ -410,13 +473,35 @@ class Settings: ObservableObject {
     ]
     
     static let glassVariants: [(String, String)] = [
-        ("Regular", "regular"),
-        ("Clear (Subtle)", "clear")
+        ("常规", "regular"),
+        ("清透", "clear")
     ]
+
+    private static let panelGlassTintKey = "panelGlassTintOpacity"
+
+    static func panelGlassTintOpacity(defaults: UserDefaults) -> Double {
+        // The legacy button-only tint may increase the default, but should not mute panel colors.
+        let legacy = defaults.object(forKey: "glassTintOpacity") as? Double
+        let inherited = legacy.flatMap { $0.isFinite && $0 > 0 ? min($0, 1) : nil }
+        let defaultOpacity = max(inherited ?? 0, PanelGlassStyle().tintOpacity)
+        let saved = defaults.object(forKey: panelGlassTintKey) as? Double
+        return saved.flatMap { $0.isFinite ? min(max($0, 0), 1) : nil } ?? defaultOpacity
+    }
+
+    static func storedDouble(
+        _ key: String,
+        defaults: UserDefaults,
+        fallback: Double
+    ) -> Double {
+        defaults.object(forKey: key) == nil ? fallback : defaults.double(forKey: key)
+    }
     
     // File management for background image
     private static func backgroundImageURL() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
         let appFolder = appSupport.appendingPathComponent("PomodoroSwift", isDirectory: true)
         try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
         return appFolder.appendingPathComponent("background.jpg")

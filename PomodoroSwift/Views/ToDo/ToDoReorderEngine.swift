@@ -6,6 +6,14 @@ enum ToDoReorderDirection {
 }
 
 struct ToDoReorderEngine {
+    static func rowTargetOffset(fromIndex: Int, toIndex: Int, items: [ToDoItem]) -> Int? {
+        guard items.indices.contains(fromIndex), items.indices.contains(toIndex),
+              items[fromIndex].isPinned == items[toIndex].isPinned else {
+            return nil
+        }
+        return rowTargetOffset(fromIndex: fromIndex, toIndex: toIndex, itemCount: items.count)
+    }
+
     static func insertionTargetOffset(fromIndex: Int, insertionIndex: Int, itemCount: Int) -> Int? {
         guard itemCount > 1 else { return nil }
 

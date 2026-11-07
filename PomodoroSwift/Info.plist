@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>在周日程中显示你勾选的日历内、有明确时间的事件。应用只读取日程，不会新增、修改或删除系统日历事件，也不会将日历内容发送给 AI。</string>
+    <key>NSLocationUsageDescription</key>
+    <string>「今日」的晴空主题使用粗略位置在本机计算太阳高度，让天空随当地昼夜变化。</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>「今日」的晴空主题使用粗略位置在本机计算太阳高度，让天空随当地昼夜变化。</string>
+</dict>
 </plist>

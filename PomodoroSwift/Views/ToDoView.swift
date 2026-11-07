@@ -7,18 +7,18 @@ import SwiftUI
 
 struct ToDoView: View {
     let panel: ToDoPanel
-    let isFirst: Bool
-    let isLast: Bool
+    let roundsBottom: Bool
     let onGroupDragChanged: (CGSize) -> Void
     let onGroupDragEnded: (CGSize) -> Void
     let onExpandedHeightChanged: (CGFloat) -> Void
-    @StateObject private var store: ToDoStore
-    @StateObject private var glassSettings: ToDoGlassSettings
-    @EnvironmentObject private var settings: Settings
+    @ObservedObject private var store: ToDoStore
+    @StateObject private var appearance: PanelAppearanceSettings
+    @Environment(\.scenePanelPhase) private var phase
     @State private var newText: String = ""
     @FocusState private var inputFocused: Bool
 
     @State private var draggingItemId: UUID?
+    @State private var cancelledDragItemId: UUID?
     @State private var pendingDropItemId: UUID?
     @State private var latestDragGlobalY: CGFloat?
     @State private var dragDisplayOffsetY: CGFloat = 0
@@ -30,7 +30,6 @@ struct ToDoView: View {
     @State private var autoScrollTimer: Timer?
     @State private var autoScrollDirection: ToDoAutoScrollDirection?
 
-    var glassEffect: Glass
     var listMaxHeight: CGFloat
 
     @State private var showGlassPicker: Bool = false
@@ -42,45 +41,27 @@ struct ToDoView: View {
 
     init(
         panel: ToDoPanel,
-        isFirst: Bool,
-        isLast: Bool,
-        glassEffect: Glass,
+        store: ToDoStore,
+        roundsBottom: Bool,
+        defaultColors: ScenePanelColors,
         listMaxHeight: CGFloat = 180,
         onGroupDragChanged: @escaping (CGSize) -> Void,
         onGroupDragEnded: @escaping (CGSize) -> Void,
         onExpandedHeightChanged: @escaping (CGFloat) -> Void
     ) {
         self.panel = panel
-        self.isFirst = isFirst
-        self.isLast = isLast
-        self.glassEffect = glassEffect
+        self.roundsBottom = roundsBottom
         self.listMaxHeight = listMaxHeight
         self.onGroupDragChanged = onGroupDragChanged
         self.onGroupDragEnded = onGroupDragEnded
         self.onExpandedHeightChanged = onExpandedHeightChanged
 
-        self._store = StateObject(wrappedValue: ToDoStore(panelId: panel.id))
-        self._glassSettings = StateObject(wrappedValue: ToDoGlassSettings(panelId: panel.id))
+        self.store = store
+        self._appearance = StateObject(wrappedValue: PanelAppearanceSettings(panelId: panel.id, fallback: defaultColors))
     }
 
-    private var effectiveGlass: Glass {
-        glassSettings.useCustom ? glassSettings.buildGlass() : glassEffect
-    }
-
-    private var textColor: Color {
-        let isDark = glassSettings.useCustom ? glassSettings.fontDark : !settings.sidebarDarkMode
-        return isDark ? .black : .white
-    }
-
-    private var panelShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: isFirst ? 14 : 0,
-            bottomLeadingRadius: isLast ? 14 : 0,
-            bottomTrailingRadius: isLast ? 14 : 0,
-            topTrailingRadius: isFirst ? 14 : 0,
-            style: .continuous
-        )
-    }
+    private var palette: ScenePanelPalette { appearance.colors.palette(for: phase) }
+    private var textColor: Color { palette.ink }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -93,14 +74,15 @@ struct ToDoView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(textColor.opacity(0.9))
 
-                let remaining = store.items.filter { !$0.isDone }.count
-                if remaining > 0 {
-                    Text("\(remaining)")
+                if store.pinnedCount > 0 {
+                    Text("\(store.pinnedCount)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(textColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(textColor.opacity(0.25)))
+                        .help("置顶待办：\(store.pinnedCount)")
+                        .accessibilityLabel("置顶待办：\(store.pinnedCount)")
                 }
 
                 Spacer()
@@ -108,25 +90,28 @@ struct ToDoView: View {
                 Button(action: { showGlassPicker.toggle() }) {
                     Image(systemName: "paintpalette")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(textColor.opacity(glassSettings.useCustom ? 0.85 : 0.45))
+                        .foregroundStyle(textColor.opacity(0.65))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help("面板配色")
+                .accessibilityLabel("面板配色")
                 .popover(isPresented: $showGlassPicker, arrowEdge: .top) {
-                    ToDoGlassPopover(glassSettings: glassSettings)
+                    ScenePanelColorControls(colors: $appearance.colors)
+                        .padding(14)
                 }
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(textColor.opacity(0.6))
-                    .rotationEffect(.degrees(glassSettings.panelExpanded ? 180 : 0))
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: glassSettings.panelExpanded)
+                    .rotationEffect(.degrees(appearance.panelExpanded ? 180 : 0))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: appearance.panelExpanded)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            glassSettings.panelExpanded.toggle()
+                            appearance.panelExpanded.toggle()
                         }
                     }
             }
@@ -150,13 +135,23 @@ struct ToDoView: View {
                 }
             }
 
-            if glassSettings.panelExpanded {
+            if appearance.panelExpanded {
                 Divider().background(.white.opacity(0.15))
 
                 ScrollViewReader { scrollProxy in
                     ScrollView {
                         VStack(spacing: 0) {
                             ForEach(store.items) { item in
+                                if store.pinnedCount > 0,
+                                   item.id == store.items.first(where: { !$0.isPinned })?.id {
+                                    Rectangle()
+                                        .fill(textColor.opacity(0.12))
+                                        .frame(height: 1)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 6)
+                                        .accessibilityHidden(true)
+                                }
+
                                 HStack(spacing: 0) {
                                     DragHandle(textColor: textColor) { translationY, globalY in
                                             handleItemDragChanged(
@@ -166,18 +161,19 @@ struct ToDoView: View {
                                                 scrollProxy: scrollProxy
                                             )
                                         } onDragEnded: {
+                                            cancelledDragItemId = nil
                                             finishReorderDrag()
                                         }
 
-                                    ToDoRow(item: item, onToggle: {
+                                    ToDoRow(item: item, onTogglePin: {
                                         withAnimation(.easeInOut(duration: 0.2)) {
-                                            store.toggle(item)
+                                            store.togglePin(item)
                                         }
+                                    }, onToggleToday: {
+                                        store.setInToday(!item.isInToday, id: item.id)
                                     }, onDelete: {
                                         withAnimation(.easeInOut(duration: 0.2)) {
-                                            if let idx = store.items.firstIndex(where: { $0.id == item.id }) {
-                                                store.delete(at: IndexSet(integer: idx))
-                                            }
+                                            store.delete(id: item.id)
                                         }
                                     }, onEdit: { newText in
                                         store.update(item, newText: newText)
@@ -251,25 +247,27 @@ struct ToDoView: View {
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .background(.clear)
-        .glassEffect(effectiveGlass, in: panelShape)
+        .taskPanelSurface(tint: palette.color, roundsBottom: roundsBottom)
+        .environment(\.colorScheme, palette.colorScheme)
         .overlay(alignment: .bottom) {
-            ZStack(alignment: .bottom) {
-                if !isLast {
-                    Rectangle()
-                        .fill(textColor.opacity(0.12))
-                        .frame(height: 1)
-                        .allowsHitTesting(false)
-                }
-
-                if glassSettings.panelExpanded {
-                    expandedHeightResizeHandle
-                }
+            if appearance.panelExpanded {
+                expandedHeightResizeHandle
             }
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onReceive(store.willChangeStructure) {
+            cancelledDragItemId = draggingItemId ?? cancelledDragItemId
+            finishReorderDrag(animateDrop: false)
+        }
+        .onChange(of: appearance.panelExpanded) { _, expanded in
+            if !expanded {
+                cancelledDragItemId = nil
+                finishReorderDrag(animateDrop: false)
+            }
+        }
         .onDisappear {
-            finishReorderDrag()
+            cancelledDragItemId = nil
+            finishReorderDrag(animateDrop: false)
         }
     }
 
@@ -315,6 +313,7 @@ struct ToDoView: View {
         globalY: CGFloat,
         scrollProxy: ScrollViewProxy
     ) {
+        guard cancelledDragItemId != itemId else { return }
         if draggingItemId == nil {
             guard let index = store.items.firstIndex(where: { $0.id == itemId }) else { return }
             draggingItemId = itemId
@@ -367,12 +366,14 @@ struct ToDoView: View {
 
     private func checkIntersection(at pointerY: CGFloat) {
         guard let draggingItemId,
-              let currentDragIndex else {
+              let currentDragIndex,
+              let draggedItem = store.items.first(where: { $0.id == draggingItemId }) else {
             return
         }
 
         let intersectedItem = store.items.first { item in
             guard item.id != draggingItemId,
+                  item.isPinned == draggedItem.isPinned,
                   let frame = rowFrames[item.id],
                   !frame.isEmpty else {
                 return false
@@ -457,11 +458,13 @@ struct ToDoView: View {
             return
         }
 
-        let targetOffset = toIndex > fromIndex ? toIndex + 1 : toIndex
+        var moved = false
         withAnimation(.easeInOut(duration: 0.14)) {
-            store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetOffset)
+            moved = store.move(from: fromIndex, to: toIndex)
         }
-        currentDragIndex = toIndex
+        if moved {
+            currentDragIndex = toIndex
+        }
     }
 
     private func updateAutoScrollState(for globalY: CGFloat, scrollProxy: ScrollViewProxy) {
@@ -495,10 +498,14 @@ struct ToDoView: View {
 
         let crossedItemId = store.items[targetIndex].id
         let crossedHeight = rowFrames[crossedItemId]?.height ?? 0
-        let targetOffset = targetIndex > fromIndex ? targetIndex + 1 : targetIndex
-
+        var moved = false
         withTransaction(Transaction(animation: .linear(duration: autoScrollTickInterval))) {
-            store.items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: targetOffset)
+            moved = store.move(from: fromIndex, to: targetIndex)
+        }
+        guard moved else {
+            stopAutoScroll()
+            scrollProxy.scrollTo(draggingItemId.uuidString, anchor: direction.anchor)
+            return
         }
         currentDragIndex = targetIndex
         lastChangeItemId = crossedItemId
@@ -550,13 +557,11 @@ struct ToDoView: View {
         autoScrollDirection = nil
     }
 
-    private func finishReorderDrag() {
+    private func finishReorderDrag(animateDrop: Bool = true) {
         stopAutoScroll()
         let droppedItemId = draggingItemId
 
-        if droppedItemId != nil {
-            pendingDropItemId = droppedItemId
-        }
+        pendingDropItemId = animateDrop ? droppedItemId : nil
 
         withAnimation(.easeOut(duration: 0.14)) {
             draggingItemId = nil
@@ -567,7 +572,7 @@ struct ToDoView: View {
             lastChangeItemId = nil
         }
 
-        guard let droppedItemId else {
+        guard animateDrop, let droppedItemId else {
             pendingDropItemId = nil
             return
         }

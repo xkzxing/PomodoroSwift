@@ -9,7 +9,8 @@ import Combine
 import AppKit
 
 struct ContentView: View {
-    @StateObject private var settings = Settings()
+    @StateObject private var settings: Settings
+    @StateObject private var todoPanelStores: ToDoPanelStores
     @StateObject private var timer: PomodoroTimer
     @StateObject private var noiseManager = WhiteNoiseManager()
     @StateObject private var weeklySchedule = WeeklyScheduleStore()
@@ -17,14 +18,28 @@ struct ContentView: View {
     @State private var isSidebarToggleHovered = false
     @State private var isSidebarTogglePressed = false
     @State private var timerPanelOffset: CGSize = .zero
+    @State private var gemstoneBackdropImage: NSImage?
+    @State private var sceneBackdropImage: NSImage?
+    @State private var sceneViewport: CGSize = .zero
+    @State private var skyDate = Date()
+    @State private var backgroundPreview = BackgroundTimePreview.live
+    @State private var backgroundPreviewMinute = Double(BackgroundTimePreview.defaultCustomMinute)
+    @State private var lakeDay = LakeDaySchedule(at: .now)
+    @AppStorage("todayPanelTheme") private var todayPanelTheme = TodayPanelView.Theme.custom
+    @AppStorage("timerPanelColors") private var timerPanelColors = ScenePanelColors.chromeDefault()
+    @ObservedObject private var skyLocation = TodaySkyLocation.shared
     @State private var timerPanelLiveOffset: CGSize = .zero
     @State private var didLoadTimerPanelOffset = false
     @State private var todoPanelGroupLiveOffset: CGSize = .zero
     @State private var todoPanelGroupLiveWidthDelta: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.scenePhase) private var windowPhase
     
     init() {
         let settings = Settings()
         _settings = StateObject(wrappedValue: settings)
+        _todoPanelStores = StateObject(wrappedValue: ToDoPanelStores(panels: settings.todoPanels))
         _timer = StateObject(wrappedValue: PomodoroTimer(
             workMinutes: settings.selectedTime,
             breakMinutes: settings.breakTime,
@@ -32,12 +47,13 @@ struct ContentView: View {
         ))
     }
     
-    /// Global resolved font color based on user setting
-    private var fontColor: Color {
-        settings.sidebarDarkMode ? .white : .black
-    }
-    
     var body: some View {
+        let sky = settings.backgroundTheme.isDynamic
+            ? backgroundPreview.sky(at: skyDate, coordinates: skyLocation.coordinates, customMinute: Int(backgroundPreviewMinute))
+            : nil
+        let phase = sky.map(ScenePanelPhase.init(sky:)) ?? (settings.sidebarDarkMode ? .dark : .light)
+        let timerPalette = timerPanelColors.palette(for: phase)
+        let settingsPalette = settings.settingsPanelColors.palette(for: phase)
         ZStack(alignment: .leading) {
             // Main Content
             ZStack {
@@ -62,17 +78,11 @@ struct ContentView: View {
                             if timer.currentMode == .shortBreak || timer.currentMode == .longBreak {
                                 Text("Break")
                                     .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(fontColor.opacity(0.7))
+                                    .foregroundStyle(timerPalette.ink.opacity(0.82))
                                     .padding(.bottom, 4)
                             }
                             
-                            // Timer Display
-                            // Uses user-selected font size, but shrinks if constrained by the Safe Zone
-                            TimerView(
-                                time: timer.formattedTime,
-                                nsFont: settings.selectedNSFont,
-                                glassStyle: glassStyle
-                            )
+                            timerDisplay(in: geometry.size, safeAreaHeight: safeAreaHeight, palette: timerPalette)
                             .contentShape(Rectangle())
                             .gesture(
                                 timerPanelDragGesture(
@@ -95,39 +105,32 @@ struct ContentView: View {
                             if timer.isCompleted && timer.currentMode == .work {
                                 // Work completed → 3 options
                                 HStack(spacing: 12) {
-                                    glassControlButton("Stop") {
+                                    glassControlButton("Stop", palette: timerPalette) {
                                         timer.resetToWork()
                                     }
-                                    glassControlButton("Short Break") {
+                                    glassControlButton("Short Break", palette: timerPalette) {
                                         timer.startBreak(long: false)
                                     }
-                                    glassControlButton("Long Break") {
+                                    glassControlButton("Long Break", palette: timerPalette) {
                                         timer.startBreak(long: true)
                                     }
                                 }
                                 .padding(.top, 20)
                             } else if timer.isCompleted {
                                 // Break completed → start focus
-                                glassControlButton("Start Focus Session") {
+                                glassControlButton("Start Focus Session", palette: timerPalette) {
                                     timer.startNextMode()
                                 }
                                 .padding(.top, 20)
                             } else if timer.isRunning && (timer.currentMode == .shortBreak || timer.currentMode == .longBreak) {
                                 // Break running → stop break
-                                glassControlButton("Stop Break") {
+                                glassControlButton("Stop Break", palette: timerPalette) {
                                     timer.resetToWork()
                                 }
                                 .padding(.top, 20)
                             } else {
-                                // Work: Start or Pause
-                                glassControlButton(timer.isRunning ? "Pause" : "Start") {
-                                    if timer.isRunning {
-                                        timer.pause()
-                                    } else {
-                                        timer.start()
-                                    }
-                                }
-                                .padding(.top, 20)
+                                startPauseControl(palette: timerPalette)
+                                    .padding(.top, 20)
                             }
                         }
                         .frame(width: min(geometry.size.width - 24, 900))
@@ -156,13 +159,12 @@ struct ContentView: View {
                         }
 
                         // To-Do Panels (single top-to-bottom stack)
-                        todoPanelsLayer(geometry: geometry, glassStyle: glassStyle)
+                        todoPanelsLayer(geometry: geometry, phase: phase)
 
                         if weeklySchedule.preferences.isVisible {
                             WeeklySchedulePanel(
                                 store: weeklySchedule,
-                                containerSize: geometry.size,
-                                glassEffect: glassStyle
+                                containerSize: geometry.size
                             )
                             .environmentObject(settings)
                         }
@@ -172,7 +174,8 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 400, minHeight: 400)
-            .background(BackgroundView(imageData: settings.backgroundImageData))
+            .coordinateSpace(name: "gemstoneBackdrop")
+            .background { mainBackground(sky: sky) }
             .clipped()
             .ignoresSafeArea()
             .background(WindowDragger()) 
@@ -197,7 +200,7 @@ struct ContentView: View {
                     Text("Settings")
                         .font(.title2)
                         .fontWeight(.semibold)
-                        .foregroundStyle(fontColor)
+                        .foregroundStyle(settingsPalette.ink)
                     
                     Spacer()
                     
@@ -208,7 +211,7 @@ struct ContentView: View {
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 24))
-                            .foregroundStyle(fontColor.opacity(0.6))
+                            .foregroundStyle(settingsPalette.ink.opacity(0.6))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -221,14 +224,15 @@ struct ContentView: View {
                 
                 // Settings Content
                 ScrollView {
-                    SettingsView(settings: settings, weeklySchedule: weeklySchedule)
+                    SettingsView(settings: settings, weeklySchedule: weeklySchedule,
+                                 backgroundPreview: $backgroundPreview, backgroundPreviewMinute: $backgroundPreviewMinute,
+                                 hasSkyLocation: skyLocation.coordinates != nil)
                         .padding(20)
                 }
             }
             .frame(width: 340)
             .frame(maxHeight: .infinity)
-            .background(.clear)
-            .glassEffect(glassStyle, in: RoundedRectangle(cornerRadius: 16))
+            .scenePanelSurface(RoundedRectangle(cornerRadius: 16), palette: settingsPalette)
             .shadow(color: .black.opacity(0.3), radius: 20, x: 5, y: 0)
             .offset(x: showSidebar ? 0 : -400)
             .zIndex(11)
@@ -242,17 +246,12 @@ struct ContentView: View {
                 }) {
                     Image(systemName: "sidebar.left")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(fontColor)
+                        .foregroundStyle(settingsPalette.ink)
                         .frame(width: 36, height: 36)
-                        .contentShape(Rectangle())
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.clear)
-                        .glassEffect(glassStyle)
-                        .id(settings.sidebarDarkMode) // Force recreation on mode change
-                )
+                .scenePanelSurface(Circle(), palette: settingsPalette)
                 .scaleEffect(isSidebarTogglePressed ? 0.95 : (isSidebarToggleHovered ? 1.05 : 1.0))
                 .opacity(isSidebarTogglePressed ? 0.9 : 1.0)
                 .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isSidebarToggleHovered)
@@ -278,10 +277,62 @@ struct ContentView: View {
             .allowsHitTesting(!showSidebar)
             .zIndex(1)
         }
+        .environment(\.scenePanelPhase, phase)
+        .environment(\.panelGlassStyle, settings.panelGlassStyle)
         .preferredColorScheme(settings.sidebarDarkMode ? .dark : .light)
         .environment(\.colorScheme, settings.sidebarDarkMode ? .dark : .light)
         .frame(minWidth: 600, minHeight: 400)
+        .onChange(of: settings.backgroundImageData, initial: true) { _, data in
+            gemstoneBackdropImage = data.flatMap(NSImage.init(data:))
+        }
+        .onChange(of: todayPanelTheme, initial: true) { previous, selected in
+            if selected == .sky { refreshSky() }
+            updateSkyLocation(askForAuthorization: previous != selected && selected == .sky)
+        }
+        .onChange(of: settings.backgroundTheme) { _, theme in
+            sceneBackdropImage = nil
+            if !theme.isDynamic {
+                backgroundPreview = .live
+            } else {
+                refreshSky()
+            }
+            updateSkyLocation()
+        }
+        .onChange(of: backgroundPreview) {
+            if backgroundPreview == .live { refreshSky() }
+        }
+        .onChange(of: skyLocation.coordinates) {
+            if skyRefreshInterval != nil { refreshSky() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            skyLocation.resumePendingRequest()
+            if skyRefreshInterval != nil { refreshSky() }
+        }
+        .onChange(of: windowPhase) {
+            if windowPhase == .active, skyRefreshInterval != nil { refreshSky() }
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            if skyRefreshInterval != nil { refreshSky() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
+            if skyRefreshInterval != nil { refreshSky() }
+        }
+        .task(id: skyRefreshInterval) {
+            guard let interval = skyRefreshInterval else { return }
+            while !Task.isCancelled {
+                let now = Date.now
+                refreshSky(at: now)
+                let localTime = now.timeIntervalSince1970 + TimeInterval(TimeZone.autoupdatingCurrent.secondsFromGMT(for: now))
+                let elapsed = localTime.truncatingRemainder(dividingBy: interval)
+                do {
+                    try await Task.sleep(for: .seconds(interval - elapsed))
+                } catch {
+                    return
+                }
+            }
+        }
         .onAppear {
+            DesktopTaskPublisher.shared.start(settings: settings)
             applyAppAppearance()
             requestNotificationPermission()
             // Sync initial noise settings
@@ -330,14 +381,169 @@ struct ContentView: View {
             applyAppAppearance()
         }
     }
+
+    private var skyRefreshInterval: TimeInterval? {
+        if settings.backgroundTheme.isDynamic && backgroundPreview == .live { return 60 }
+        return todayPanelTheme == .sky ? 30 * 60 : nil
+    }
+
+    private func refreshSky(at now: Date = .now) {
+        let calendar = LakeDaySchedule.localCalendar
+        if !lakeDay.covers(now, calendar: calendar) {
+            lakeDay = LakeDaySchedule(at: now, calendar: calendar)
+        }
+        skyDate = now
+    }
+
+    private func updateSkyLocation(askForAuthorization: Bool = false) {
+        let todayUsesSky = todayPanelTheme == .sky
+        skyLocation.setEnabled(todayUsesSky || settings.backgroundTheme.isDynamic,
+                               askForAuthorization: askForAuthorization, permitsAuthorization: todayUsesSky)
+    }
+
+    @ViewBuilder
+    private func mainBackground(sky: TodaySkyAstronomy.Sky?) -> some View {
+        if let sky {
+            let live = backgroundPreview == .live
+            let date = backgroundPreview.date(at: skyDate, customMinute: Int(backgroundPreviewMinute))
+            let theme = settings.backgroundTheme
+            let schedule = theme == .lakeside ? (live ? lakeDay : Self.demoLakeDay) : nil
+            let frame = DynamicBackgroundView.Frame(theme: theme, sky: sky, date: date, schedule: schedule)
+            let snapshot = sceneSnapshot(for: frame)
+            DynamicBackgroundView(frame: frame, advancesMotion: live && !reduceMotion && windowPhase == .active)
+                .equatable()
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { sceneViewport = $0 }
+                .task(id: snapshot) {
+                    guard let snapshot else {
+                        sceneBackdropImage = nil
+                        return
+                    }
+                    // Only capture the minute frame, after preview scrubbing or resizing settles.
+                    try? await Task.sleep(for: .milliseconds(220))
+                    guard !Task.isCancelled else { return }
+                    let scene = DynamicBackgroundView(frame: snapshot.frame, advancesMotion: false)
+                    let renderer = ImageRenderer(content: scene.frame(width: snapshot.size.width, height: snapshot.size.height))
+                    sceneBackdropImage = renderer.nsImage
+                }
+        } else {
+            BackgroundView(imageData: settings.backgroundImageData)
+        }
+    }
+
+    private static let demoLakeDay = LakeDaySchedule(at: BackgroundTimePreview.demoDay,
+                                                      calendar: BackgroundTimePreview.demoCalendar, demo: true)
+
+    private struct SceneSnapshot: Equatable {
+        let frame: DynamicBackgroundView.Frame
+        let size: CGSize
+    }
+
+    private func sceneSnapshot(for frame: DynamicBackgroundView.Frame) -> SceneSnapshot? {
+        guard settings.timerDisplayStyle == .gemstone, sceneViewport.width > 0, sceneViewport.height > 0 else { return nil }
+        let scale = min(1, 1024 / max(sceneViewport.width, sceneViewport.height))
+        let size = CGSize(width: (sceneViewport.width * scale).rounded(), height: (sceneViewport.height * scale).rounded())
+        return SceneSnapshot(frame: frame, size: size)
+    }
+
+    @ViewBuilder
+    private func timerDisplay(in containerSize: CGSize, safeAreaHeight: CGFloat, palette: ScenePanelPalette) -> some View {
+        let glass = settings.panelGlassStyle.tinted(palette.color)
+        if settings.timerDisplayStyle.isAnalog {
+            let diameter = swissClockDiameter(in: containerSize, safeAreaHeight: safeAreaHeight)
+            let interval = settings.timerDisplayStyle == .gemstone
+                ? GemstoneClockCadence.interval(duration: TimeInterval(timer.totalDuration), diameter: diameter, displayScale: displayScale)
+                : 1.0 / 30
+            TimelineView(.animation(minimumInterval: reduceMotion ? 1 : interval, paused: !timer.isRunning)) { context in
+                let progress = SwissClockProgress(
+                    totalDuration: timer.totalDuration,
+                    elapsedTime: timer.elapsedTime(at: context.date)
+                )
+                if settings.timerDisplayStyle == .gemstone {
+                    GemstoneClockView(
+                        progress: progress,
+                        glassStyle: glass,
+                        backdropImage: settings.backgroundTheme.isDynamic ? sceneBackdropImage : gemstoneBackdropImage,
+                        backdropSize: containerSize
+                    )
+                } else {
+                    SwissClockView(
+                        progress: progress,
+                        palette: palette
+                    )
+                }
+            }
+            .frame(
+                width: diameter,
+                height: diameter
+            )
+            .environment(\.colorScheme, palette.colorScheme)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(settings.timerDisplayStyle == .gemstone ? "鎏金彩晶倒计时表盘" : "Swiss countdown clock")
+            .accessibilityValue("\(timer.formattedTime) remaining")
+            .help(settings.timerDisplayStyle == .gemstone
+                  ? "剩余时间：\(timer.formattedTime)\n指针在整段倒计时内转一圈。"
+                  : "Remaining: \(timer.formattedTime)\nRed hand: one full session.")
+        } else {
+            TimerView(
+                time: timer.formattedTime,
+                nsFont: settings.selectedNSFont,
+                glassStyle: glass,
+                sceneInk: settings.backgroundTheme.isDynamic ? palette.ink : nil
+            )
+            .environment(\.colorScheme, palette.colorScheme)
+        }
+    }
+
+    private var swissClockControlsHeight: CGFloat {
+        88 + (timer.currentMode == .work ? 0 : 28)
+    }
+
+    @ViewBuilder
+    private func startPauseControl(palette: ScenePanelPalette) -> some View {
+        let title = timer.isRunning ? "Pause" : "Start"
+        if settings.timerDisplayStyle.isAnalog {
+            Button(action: toggleTimer) {
+                Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(palette.ink)
+                    .frame(width: 50, height: 50)
+                    .contentShape(Circle())
+                    .scenePanelSurface(Circle(), palette: palette)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .help(title)
+        } else {
+            glassControlButton(title, palette: palette, action: toggleTimer)
+        }
+    }
+
+    private func toggleTimer() {
+        if timer.isRunning {
+            timer.pause()
+        } else {
+            timer.start()
+        }
+    }
+
+    private func swissClockDiameter(in containerSize: CGSize, safeAreaHeight: CGFloat) -> CGFloat {
+        return min(
+            CGFloat(settings.swissClockSize),
+            max(100, containerSize.width - 48),
+            max(100, safeAreaHeight - swissClockControlsHeight)
+        )
+    }
     
     private func clampedTimerPanelOffset(
         _ proposedOffset: CGSize,
         in containerSize: CGSize,
         safeAreaHeight: CGFloat
     ) -> CGSize {
-        let horizontalMargin: CGFloat = 120
-        let verticalMargin: CGFloat = 90
+        let diameter = swissClockDiameter(in: containerSize, safeAreaHeight: safeAreaHeight)
+        let horizontalMargin: CGFloat = settings.timerDisplayStyle.isAnalog ? diameter / 2 + 24 : 120
+        let verticalMargin: CGFloat = settings.timerDisplayStyle.isAnalog
+            ? (diameter + swissClockControlsHeight) / 2
+            : 90
         
         let minX = -containerSize.width / 2 + horizontalMargin
         let maxX = containerSize.width / 2 - horizontalMargin
@@ -355,9 +561,13 @@ struct ContentView: View {
         containerSize: CGSize,
         safeAreaHeight: CGFloat
     ) -> some Gesture {
-        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+        DragGesture(minimumDistance: settings.timerDisplayStyle.isAnalog ? 1 : 8, coordinateSpace: .global)
             .onChanged { value in
-                timerPanelLiveOffset = value.translation
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    timerPanelLiveOffset = value.translation
+                }
             }
             .onEnded { value in
                 let proposedOffset = CGSize(
@@ -448,17 +658,8 @@ struct ContentView: View {
         .eraseToAnyPublisher()
     }
     
-    private var glassStyle: Glass {
-        var glass: Glass = settings.glassVariant == "clear" ? .clear : .regular
-        glass = glass.tint(settings.glassTintColor.opacity(settings.glassTintOpacity))
-        if settings.glassInteractive {
-            glass = glass.interactive()
-        }
-        return glass
-    }
-    
     @ViewBuilder
-    private func glassControlButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func glassControlButton(_ title: String, palette: ScenePanelPalette, action: @escaping () -> Void) -> some View {
         GlassButton(
             title, 
             settings: settings, 
@@ -466,6 +667,7 @@ struct ContentView: View {
             horizontalPadding: 32, 
             verticalPadding: 12, 
             cornerRadius: 14, 
+            panelPalette: palette,
             action: action
         )
     }
@@ -481,7 +683,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func todoPanelsLayer(geometry: GeometryProxy, glassStyle: Glass) -> some View {
+    private func todoPanelsLayer(geometry: GeometryProxy, phase: ScenePanelPhase) -> some View {
         let maximumPanelWidth = max(geometry.size.width - 24, 240)
         let basePanelWidth = min(max(CGFloat(settings.todoPanelGroupWidth), 240), maximumPanelWidth)
         let panelWidth = min(max(basePanelWidth + todoPanelGroupLiveWidthDelta, 240), maximumPanelWidth)
@@ -497,33 +699,41 @@ struct ContentView: View {
             panelWidth: panelWidth
         )
 
+        let onGroupDragChanged: (CGSize) -> Void = { todoPanelGroupLiveOffset = $0 }
+        let onGroupDragEnded: (CGSize) -> Void = {
+            finishToDoPanelGroupDrag($0, in: geometry.size, panelWidth: panelWidth)
+        }
+
         VStack(spacing: 0) {
+            TodayPanelView(
+                panels: settings.todoPanels,
+                panelStores: todoPanelStores,
+                skyDate: skyDate,
+                onGroupDragChanged: onGroupDragChanged,
+                onGroupDragEnded: onGroupDragEnded
+            )
             ForEach(Array(settings.todoPanels.enumerated()), id: \.element.id) { index, panel in
-                ToDoView(
-                    panel: panel,
-                    isFirst: index == settings.todoPanels.startIndex,
-                    isLast: index == settings.todoPanels.count - 1,
-                    glassEffect: glassStyle,
-                    listMaxHeight: CGFloat(panel.expandedHeight),
-                    onGroupDragChanged: { translation in
-                        todoPanelGroupLiveOffset = translation
-                    },
-                    onGroupDragEnded: { translation in
-                        finishToDoPanelGroupDrag(
-                            translation,
-                            in: geometry.size,
-                            panelWidth: panelWidth
-                        )
-                    },
-                    onExpandedHeightChanged: { height in
-                        updateToDoPanelExpandedHeight(panelID: panel.id, height: height)
-                    }
-                )
-                .id("\(panel.id.uuidString)-\(settings.sidebarDarkMode ? "dark" : "light")")
-                .environmentObject(settings)
+                if let store = todoPanelStores.stores[panel.id] {
+                    ToDoView(
+                        panel: panel,
+                        store: store,
+                        roundsBottom: index == settings.todoPanels.count - 1,
+                        defaultColors: .taskDefault(at: index),
+                        listMaxHeight: CGFloat(panel.expandedHeight),
+                        onGroupDragChanged: onGroupDragChanged,
+                        onGroupDragEnded: onGroupDragEnded,
+                        onExpandedHeightChanged: { height in
+                            updateToDoPanelExpandedHeight(panelID: panel.id, height: height)
+                        }
+                    )
+                }
             }
         }
+        .onChange(of: settings.todoPanels) { _, panels in
+            todoPanelStores.updatePanels(panels)
+        }
         .frame(width: panelWidth)
+        .environment(\.colorScheme, phase == .light ? .light : .dark)
         .overlay(alignment: .trailing) {
             todoPanelGroupWidthResizeHandle(
                 containerSize: geometry.size,
@@ -531,8 +741,6 @@ struct ContentView: View {
                 maximumPanelWidth: maximumPanelWidth
             )
         }
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.22), radius: 12, x: 0, y: 8)
         .padding(.top, 12)
         .offset(x: groupOffset.width, y: groupOffset.height)
     }
@@ -548,7 +756,7 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .overlay {
                 Capsule()
-                    .fill(fontColor.opacity(0.28))
+                    .fill(.secondary)
                     .frame(width: 3, height: 36)
                     .allowsHitTesting(false)
             }

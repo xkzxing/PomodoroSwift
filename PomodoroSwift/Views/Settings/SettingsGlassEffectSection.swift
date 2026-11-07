@@ -5,12 +5,12 @@ struct SettingsGlassEffectSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Liquid Glass Effect")
+            Text("液态玻璃")
                 .font(.headline)
                 .foregroundStyle(.primary)
 
             HStack {
-                Text("Glass Variant")
+                Text("玻璃样式")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Picker("", selection: $settings.glassVariant) {
@@ -22,17 +22,9 @@ struct SettingsGlassEffectSection: View {
                 .frame(width: 140)
             }
 
-            HStack {
-                Text("Tint Color")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                ColorPicker("", selection: $settings.glassTintColor, supportsOpacity: false)
-                    .labelsHidden()
-            }
-
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Tint Opacity")
+                    Text("着色强度")
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(String(format: "%.2f", settings.glassTintOpacity))
@@ -42,7 +34,7 @@ struct SettingsGlassEffectSection: View {
                 Slider(value: $settings.glassTintOpacity, in: 0.0...1.0, step: 0.01)
             }
 
-            Toggle("Interactive Shimmer", isOn: $settings.glassInteractive)
+            Toggle("交互光效", isOn: $settings.glassInteractive)
                 .foregroundStyle(.secondary)
         }
     }

@@ -186,10 +186,10 @@ final class AIClassificationServiceTests: XCTestCase {
         let lock = NSLock()
 
         MockURLProtocol.requestHandler = { request in
-            lock.lock()
-            callCount += 1
-            let currentCall = callCount
-            lock.unlock()
+            let currentCall = lock.withLock {
+                callCount += 1
+                return callCount
+            }
 
             if currentCall == 1 {
                 let body = try makeResponseBody(content: "not-json")

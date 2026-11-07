@@ -9,6 +9,7 @@ final class AIClassificationController: ObservableObject {
     @Published var statusIsError: Bool = false
 
     private let service: AIToDoClassificationService
+    private var requestID: UUID?
     private var classificationTask: Task<Void, Never>?
 
     init(service: AIToDoClassificationService) {
@@ -27,7 +28,8 @@ final class AIClassificationController: ObservableObject {
         guard !isClassifying else { return }
 
         let trimmedApiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let submittedInput = inputText
+        let trimmedInput = submittedInput.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedApiKey.isEmpty else {
             statusIsError = true
@@ -51,6 +53,8 @@ final class AIClassificationController: ObservableObject {
         statusIsError = false
         isClassifying = true
 
+        let id = UUID()
+        requestID = id
         classificationTask = Task { [weak self] in
             guard let self else { return }
 
@@ -63,31 +67,27 @@ final class AIClassificationController: ObservableObject {
 
                 try Task.checkCancellation()
 
-                let inserted = await MainActor.run {
-                    persistAssignments(assignments)
-                }
+                guard self.requestID == id else { return }
+                // Keep cancellation validation and persistence in the same actor turn.
+                let inserted = persistAssignments(assignments)
+                self.isClassifying = false
+                self.classificationTask = nil
+                self.requestID = nil
+                self.statusIsError = false
 
-                await MainActor.run {
-                    self.isClassifying = false
-                    self.classificationTask = nil
-                    self.statusIsError = false
-
-                    if inserted > 0 {
-                        self.statusMessage = "Added \(inserted) task(s) into existing panels."
-                        self.inputText = ""
-                    } else {
-                        self.statusMessage = "No valid tasks were returned by AI."
-                    }
+                if inserted > 0 {
+                    self.statusMessage = "Added \(inserted) task(s) into existing panels."
+                    if self.inputText == submittedInput { self.inputText = "" }
+                } else {
+                    self.statusMessage = "No valid tasks were returned by AI."
                 }
             } catch {
-                await MainActor.run {
-                    if self.isClassifying {
-                        self.isClassifying = false
-                        self.statusIsError = true
-                        self.statusMessage = self.userFacingError(error)
-                    }
-                    self.classificationTask = nil
-                }
+                guard self.requestID == id else { return }
+                self.isClassifying = false
+                self.statusIsError = true
+                self.statusMessage = self.userFacingError(error)
+                self.classificationTask = nil
+                self.requestID = nil
             }
         }
     }
@@ -105,6 +105,7 @@ final class AIClassificationController: ObservableObject {
     }
 
     func cancelClassification() {
+        requestID = nil
         classificationTask?.cancel()
         classificationTask = nil
 

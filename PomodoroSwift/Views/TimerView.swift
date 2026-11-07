@@ -11,6 +11,7 @@ struct TimerView: View {
     let time: String
     let nsFont: NSFont
     let glassStyle: Glass
+    var sceneInk: Color? = nil
     @State private var cachedPath: Path = Path()
     @State private var cachedPathKey: String = ""
 
@@ -28,11 +29,16 @@ struct TimerView: View {
                         Color.clear
                             .glassEffect(glassStyle, in: cachedPath)
 
+                        if let sceneInk {
+                            cachedPath.fill(sceneInk.opacity(0.58))
+                        }
+
                         cachedPath
                             .stroke(.black.opacity(0.20), lineWidth: 1.2)
                             .blur(radius: 1.0)
                             .offset(y: 1.2)
                             .mask(cachedPath)
+
                     }
                     .onAppear {
                         rebuildPathIfNeeded(for: proxy.size, pathKey: pathKey)
@@ -91,7 +97,9 @@ private enum TimerTextPathFactory {
         let baselineY = rect.midY + (ascent - descent) / 2
 
         let result = CGMutablePath()
-        let runs = CTLineGetGlyphRuns(line) as! [CTRun]
+        guard let runs = CTLineGetGlyphRuns(line) as? [CTRun] else {
+            return Path()
+        }
 
         for run in runs {
             let glyphCount = CTRunGetGlyphCount(run)

@@ -116,10 +116,9 @@ class WhiteNoiseManager: ObservableObject {
     
     func play() {
         guard !isPlaying else { return }
-        
-        setupEngineIfNeeded()
-        
+
         do {
+            try setupEngineIfNeeded()
             if audioEngine?.isRunning != true {
                 try audioEngine?.start()
             }
@@ -156,13 +155,18 @@ class WhiteNoiseManager: ObservableObject {
     
     func setCampfireParams(rumble: Double, texture: Double, woodyDensity: Double, woodyLevel: Double, snapDensity: Double, snapLevel: Double, rumbleSmooth: Double, textureSmooth: Double, freqLo: Double, freqMid: Double, freqHi: Double, resonance: Double, burstProb: Double) {
         
+        let previousSignature = currentBufferSignature()
         // Update local params
         cfParams = (
             Float(rumble), Float(texture), Float(woodyDensity), Float(woodyLevel),
             Float(snapDensity), Float(snapLevel), Float(rumbleSmooth), Float(textureSmooth),
             Float(freqLo), Float(freqMid), Float(freqHi), Float(resonance), Float(burstProb)
         )
+        guard currentBufferSignature() != previousSignature else { return }
         invalidateBufferCache()
+        if isPlaying && currentNoiseType == .campfire {
+            requestLoopBufferGeneration()
+        }
     }
     
     func setNoiseType(_ type: NoiseType) {
@@ -175,7 +179,7 @@ class WhiteNoiseManager: ObservableObject {
     
     // MARK: - Engine Setup
     
-    private func setupEngineIfNeeded() {
+    private func setupEngineIfNeeded() throws {
         if audioEngine != nil {
             return
         }
@@ -184,9 +188,20 @@ class WhiteNoiseManager: ObservableObject {
         let playerNode = AVAudioPlayerNode()
         let mainMixer = engine.mainMixerNode
         let outputFormat = mainMixer.outputFormat(forBus: 0)
-        currentSampleRate = outputFormat.sampleRate
+        let sampleRate = outputFormat.sampleRate
+        guard sampleRate.isFinite, sampleRate > 0,
+              let format = AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: 1
+              ) else {
+            throw NSError(
+                domain: "WhiteNoiseManager",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "No valid audio output format"]
+            )
+        }
+        currentSampleRate = sampleRate
 
-        let format = AVAudioFormat(standardFormatWithSampleRate: currentSampleRate, channels: 1)!
         engine.attach(playerNode)
         engine.connect(playerNode, to: mainMixer, format: format)
         engine.prepare()
@@ -265,8 +280,17 @@ class WhiteNoiseManager: ObservableObject {
     }
 
     private func generatePCMBuffer(state: AudioState, sampleRate: Double, duration: Double) -> AVAudioPCMBuffer? {
+        guard sampleRate.isFinite, sampleRate > 0, duration.isFinite, duration > 0,
+              let format = AVAudioFormat(
+                standardFormatWithSampleRate: sampleRate,
+                channels: 1
+              ) else { return nil }
         let frameCount = AVAudioFrameCount(sampleRate * duration)
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!, frameCapacity: frameCount) else { return nil }
+        guard frameCount > 0,
+              let buffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: frameCount
+              ) else { return nil }
         
         buffer.frameLength = frameCount
         guard let channelData = buffer.floatChannelData?[0] else { return nil }

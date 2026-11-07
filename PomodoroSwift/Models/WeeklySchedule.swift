@@ -1,5 +1,11 @@
 import Foundation
 
+enum ScheduleFirstDay: String, Codable, CaseIterable, Identifiable {
+    case monday, today
+    var id: String { rawValue }
+    var title: String { self == .monday ? "本周周一" : "今日" }
+}
+
 enum ScheduleWeekday: Int, CaseIterable, Codable, Identifiable {
     case monday = 1, tuesday, wednesday, thursday, friday, saturday, sunday
 
@@ -12,15 +18,32 @@ enum ScheduleWeekday: Int, CaseIterable, Codable, Identifiable {
 }
 
 enum ScheduleColor: String, CaseIterable, Codable, Identifiable {
-    case blue, teal, purple, orange, pink
+    case red, orange, yellow, green, blue, purple, gray
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .blue: return "蓝色"
-        case .teal: return "青色"
-        case .purple: return "紫色"
+        case .red: return "红色"
         case .orange: return "橙色"
-        case .pink: return "粉色"
+        case .yellow: return "黄色"
+        case .green: return "绿色"
+        case .blue: return "蓝色"
+        case .purple: return "紫色"
+        case .gray: return "灰色"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        // Migrate removed colors without making the entire saved schedule unreadable.
+        switch value {
+        case "teal": self = .blue
+        case "pink": self = .red
+        default:
+            guard let color = Self(rawValue: value) else {
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unknown schedule color")
+            }
+            self = color
         }
     }
 }
@@ -60,6 +83,15 @@ struct ScheduleEventPlacement: Identifiable {
 }
 
 enum WeeklyScheduleMath {
+    static func visibleDates(
+        now: Date, firstDay: ScheduleFirstDay, includesWeekend: Bool, calendar: Calendar = .current
+    ) -> [Date] {
+        let today = calendar.startOfDay(for: now)
+        let anchor = firstDay == .today ? today : (weekDates(containing: now, calendar: calendar).first ?? today)
+        return (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: anchor) }
+            .filter { includesWeekend || ScheduleWeekday.from($0, calendar: calendar).rawValue <= 5 }
+    }
+
     static func timeLabel(_ minute: Int) -> String {
         String(format: "%02d:%02d", minute / 60, minute % 60)
     }

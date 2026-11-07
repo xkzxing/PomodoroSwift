@@ -1,0 +1,58 @@
+[
+  {
+    "id": "photo-office", "name": "落地窗室内", "detail": "窗框、座椅与绿植，检查直线折射",
+    "file": "office.jpg", "author": "lost voyager",
+    "source": "https://unsplash.com/photos/modern-office-lobby-with-large-windows-and-plants-FcJLI1T-HEk",
+    "download": "https://images.unsplash.com/photo-1767331290386-de84a43d7c49?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-library", "name": "木质书架", "detail": "密集书脊、栏杆与层架，检查细节与读针",
+    "file": "library.jpg", "author": "Leo Okuyama",
+    "source": "https://unsplash.com/photos/modern-bookstore-interior-with-multi-level-bookshelves-and-stairs-15PCN04GfiU",
+    "download": "https://images.unsplash.com/photo-1756037020830-9c660fc52c08?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-street", "name": "石板街道", "detail": "窗户、墙面与路面纹理，检查移动对齐",
+    "file": "street.jpg", "author": "Robert Eklund",
+    "source": "https://unsplash.com/photos/empty-road-between-concrete-buildings-during-daytime-JJwcDA4BNhU",
+    "download": "https://images.unsplash.com/photo-1585919194390-03baffcdd224?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-forest", "name": "林间日光", "detail": "树叶、树干与日光，检查复杂绿色环境",
+    "file": "forest.jpg", "author": "Darren Bockman",
+    "source": "https://unsplash.com/photos/green-leaf-trees-illuminated-by-suns-rays-pN3Z2usSIQw",
+    "download": "https://images.unsplash.com/photo-1452990457935-b5638f0c013b?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-night", "name": "雨夜霓虹", "detail": "暗部、招牌与湿地反光，检查亮暗反差",
+    "file": "night.jpg", "author": "Dominic Kurniawan Suryaputra",
+    "source": "https://unsplash.com/photos/city-street-at-night-with-wet-pavement-and-neon-lights-mqRGhwl1E3I",
+    "download": "https://images.unsplash.com/photo-1774222187445-840cd8b1920b?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-lake", "name": "山湖岩壁", "detail": "岩石、草地与水岸，检查冷色和细碎纹理",
+    "file": "lake.jpg", "author": "Antoan Valchev",
+    "source": "https://unsplash.com/photos/mountain-landscape-with-a-lake-and-dramatic-clouds-7bO8ZSxn-GY",
+    "download": "https://images.unsplash.com/photo-1776415383867-797ae41c861f?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-autumn", "name": "秋日公园", "detail": "枝叶、落叶与小径，检查暖色环境",
+    "file": "autumn.jpg", "author": "Thomas K",
+    "source": "https://unsplash.com/photos/path-through-autumn-trees-in-a-park-uvCaQjAPx60",
+    "download": "https://images.unsplash.com/photo-1761144459402-80182d476772?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  },
+  {
+    "id": "photo-coast", "name": "暮色海岸", "detail": "礁石、海浪与余晖，检查低亮度透光",
+    "file": "coast.jpg", "author": "Alessandro Guarino",
+    "source": "https://unsplash.com/photos/waves-crashing-against-a-rocky-coastline-at-dusk-b_Ko1SovFRI",
+    "download": "https://images.unsplash.com/photo-1774637460576-ccc3f679dc02?fm=jpg&q=90&w=2560&h=2560&fit=max",
+    "license": "https://unsplash.com/license"
+  }
+]

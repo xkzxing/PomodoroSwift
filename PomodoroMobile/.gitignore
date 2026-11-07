@@ -1,0 +1,25 @@
+.build/
+.swiftpm/
+build/
+dist/
+DerivedData/
+xcuserdata/
+.DS_Store
+*.log
+.renewal/
+__pycache__/
+
+# Local signing, device renewal, and personal assets
+/AGENTS.md
+/App/Resources/DesktopBackground.jpg
+/RENEWAL.md
+/VERIFICATION.md
+/Scripts/Renewal/
+/Scripts/archive.sh
+/Scripts/background_renew.py
+/Scripts/install_background_renewal.py
+/Scripts/manual_renew.py
+/Scripts/renew.py
+/Scripts/test_background_renew.py
+/Scripts/test_renew.py
+/手动无线续签.command

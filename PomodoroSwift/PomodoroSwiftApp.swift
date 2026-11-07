@@ -19,7 +19,10 @@ struct PomodoroSwiftApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            // Hosted unit tests must not migrate the user's real to-do lists.
+            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+                ContentView()
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 800, height: 600)

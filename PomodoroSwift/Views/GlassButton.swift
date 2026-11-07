@@ -18,6 +18,9 @@ struct GlassButton: View {
     
     // Direct reactivity to settings
     @ObservedObject var settings: Settings
+    let panelPalette: ScenePanelPalette?
+    @Environment(\.scenePanelPhase) private var phase
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var isHovered = false
     @State private var isPressed = false
@@ -30,6 +33,7 @@ struct GlassButton: View {
         horizontalPadding: CGFloat = 20,
         verticalPadding: CGFloat = 8,
         cornerRadius: CGFloat = 8,
+        panelPalette: ScenePanelPalette? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -39,6 +43,7 @@ struct GlassButton: View {
         self.horizontalPadding = horizontalPadding
         self.verticalPadding = verticalPadding
         self.cornerRadius = cornerRadius
+        self.panelPalette = panelPalette
         self.action = action
     }
 
@@ -46,28 +51,14 @@ struct GlassButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: fontSize, weight: .medium))
-                .foregroundStyle(isDestructive ? Color.red : (!settings.sidebarDarkMode ? Color.black : Color.white))
+                .foregroundStyle(isDestructive ? Color.red : (panelPalette?.ink ?? .primary))
                 .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, verticalPadding)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(.clear)
-                .glassEffect(
-                    {
-                        var glass: Glass = settings.glassVariant == "clear" ? .clear : .regular
-                        let color = isDestructive ? Color.red : settings.glassTintColor
-                        glass = glass.tint(color.opacity(settings.glassTintOpacity))
-                        if settings.glassInteractive {
-                            glass = glass.interactive()
-                        }
-                        return glass
-                    }()
-                )
-                .id(settings.sidebarDarkMode) // Force recreation on mode change
-        )
+        .glassEffect(buttonGlass, in: RoundedRectangle(cornerRadius: cornerRadius))
+        .environment(\.colorScheme, panelPalette?.colorScheme ?? colorScheme)
         .scaleEffect(isPressed ? 0.95 : (isHovered ? 1.03 : 1.0))
         .opacity(isPressed ? 0.9 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isHovered)
@@ -84,5 +75,10 @@ struct GlassButton: View {
                     isPressed = false
                 }
         )
+    }
+
+    private var buttonGlass: Glass {
+        let palette = panelPalette ?? settings.settingsPanelColors.palette(for: phase)
+        return settings.panelGlassStyle.tinted(isDestructive ? .red : palette.color)
     }
 }

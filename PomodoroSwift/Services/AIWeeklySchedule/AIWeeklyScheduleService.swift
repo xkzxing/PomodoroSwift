@@ -134,7 +134,8 @@ final class DashScopeAIWeeklyScheduleService: AIWeeklyScheduleService {
         今天/明天、仅本周、隔周、一次性安排都放入 needsClarification 提示用户补充，不转换成永久每周重复。
         有任何需要澄清的内容时，events返回空数组，确保不会只添加部分输入。
         忽略普通闲聊。输入未包含日程则返回两个空数组。禁止按常识编造或补充任何安排。
-        color可选blue/teal/purple/orange/pink，未指定颜色使用blue。日程名称不超过200字。
+        color可选red/orange/yellow/green/blue/purple/gray，分别对应红、橙、黄、绿、蓝、紫、灰；
+        仅使用这七种颜色，用户指定青色时使用blue，指定粉色时使用red。未指定颜色使用blue。日程名称不超过200字。
         最多50条日程，不输出说明、代码围栏、额外字段或操作指令。
         """
         var request = URLRequest(url: endpoint)

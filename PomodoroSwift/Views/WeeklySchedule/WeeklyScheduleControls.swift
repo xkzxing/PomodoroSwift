@@ -3,11 +3,13 @@ import SwiftUI
 extension ScheduleColor {
     var tint: Color {
         switch self {
-        case .blue: return .blue
-        case .teal: return .teal
-        case .purple: return .purple
+        case .red: return .red
         case .orange: return .orange
-        case .pink: return .pink
+        case .yellow: return .yellow
+        case .green: return .green
+        case .blue: return .blue
+        case .purple: return .purple
+        case .gray: return .gray
         }
     }
 }
@@ -53,6 +55,10 @@ struct WeeklyScheduleDisplayControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Picker("第一列", selection: $store.preferences.firstDay) {
+                ForEach(ScheduleFirstDay.allCases) { day in Text(day.title).tag(day) }
+            }
+            .accessibilityIdentifier("weeklyFirstDay")
             Toggle("包括周末", isOn: $store.preferences.includesWeekend)
             ScheduleTimePicker(title: "开始时间", minute: Binding(
                 get: { store.preferences.startMinute },
@@ -72,7 +78,13 @@ struct WeeklyScheduleDisplayControls: View {
                     store.preferences = value
                 }
             ), allowsEndOfDay: true)
-            Text("空闲统计只计算所显示的日期和时间范围。隐藏周末不会删除周末日程。")
+            Picker("日程最小字号", selection: $store.preferences.minimumFontSize) {
+                ForEach(7...11, id: \.self) { size in Text("\(size) 点").tag(Double(size)) }
+            }
+            .accessibilityIdentifier("weeklyMinimumFontSize")
+            Text("日程文字优先换行，空间不足时从 11 点逐步缩小到最小字号。仍放不下时省略尾部，可悬停查看完整内容。")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("固定日程每周重复，不绑定日期。选择今日时显示从今天开始的七天；不显示周末时，跳过周六和周日。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -83,6 +95,7 @@ struct SettingsWeeklyScheduleSection: View {
     @ObservedObject var store: WeeklyScheduleStore
     @ObservedObject var settings: Settings
     @State private var showAI = false
+    @State private var showCalendars = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,6 +104,11 @@ struct SettingsWeeklyScheduleSection: View {
             WeeklyScheduleDisplayControls(store: store)
             Button("AI 添加日程", systemImage: "sparkles") { showAI = true }
                 .accessibilityIdentifier("weeklyAISettingsOpen")
+            Button("日历来源", systemImage: "calendar.badge.clock") { showCalendars = true }
+                .popover(isPresented: $showCalendars, arrowEdge: .top) {
+                    ScheduleCalendarSettings(calendarStore: store.calendarStore)
+                        .padding(18).frame(width: 350)
+                }
             Button("重置面板位置与尺寸") { store.resetLayout() }
             Text("拖动面板标题移动位置，拖动右下角调整大小。")
                 .font(.caption).foregroundStyle(.secondary)
@@ -163,7 +181,7 @@ struct WeeklyScheduleEditor: View {
             if let message = event.validationMessage {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             } else if overlaps {
-                Label("与已有日程重叠；会并排显示，空闲统计不会重复扣除。", systemImage: "exclamationmark.triangle")
+                Label("与已有固定日程重叠，会并排显示。", systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
             if let message = store.storageError {

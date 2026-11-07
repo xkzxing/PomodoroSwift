@@ -68,7 +68,7 @@ class PomodoroTimer: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.recalculateTimeRemaining()
+            MainActor.assumeIsolated { self?.recalculateTimeRemaining() }
         }
     }
     
@@ -89,17 +89,19 @@ class PomodoroTimer: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self = self else { return }
-            if let action = notification.userInfo?["action"] as? String {
-                switch action {
-                case "shortBreak":
-                    self.startBreak(long: false)
-                case "longBreak":
-                    self.startBreak(long: true)
-                case "focus":
-                    self.startNextMode()
-                default:
-                    self.startNextMode()
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                if let action = notification.userInfo?["action"] as? String {
+                    switch action {
+                    case "shortBreak":
+                        self.startBreak(long: false)
+                    case "longBreak":
+                        self.startBreak(long: true)
+                    case "focus":
+                        self.startNextMode()
+                    default:
+                        self.startNextMode()
+                    }
                 }
             }
         }
@@ -151,6 +153,10 @@ class PomodoroTimer: ObservableObject {
     func start() {
         guard !isRunning else { return }
         cancelDelayedRestart()
+        guard timeRemaining > 0 else {
+            if !isCompleted { complete() }
+            return
+        }
         isRunning = true
         isCompleted = false
         
@@ -158,10 +164,11 @@ class PomodoroTimer: ObservableObject {
         startDate = Date()
         timeRemainingAtStart = timeRemaining
         
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            self.recalculateTimeRemaining()
+        let ticker = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.recalculateTimeRemaining() }
         }
+        timer = ticker
+        RunLoop.main.add(ticker, forMode: .common)
     }
     
     func pause() {
@@ -254,14 +261,18 @@ class PomodoroTimer: ObservableObject {
             return
         }
 
-        delayedRestartTimer = Timer.scheduledTimer(
-            withTimeInterval: TimeInterval(seconds),
+        let restartTimer = Timer(
+            timeInterval: TimeInterval(seconds),
             repeats: false
         ) { [weak self] _ in
-            guard let self else { return }
-            self.delayedRestartTimer = nil
-            self.startNextMode()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.delayedRestartTimer = nil
+                self.startNextMode()
+            }
         }
+        delayedRestartTimer = restartTimer
+        RunLoop.main.add(restartTimer, forMode: .common)
     }
     
     // Start a specific break mode from notification
@@ -275,15 +286,16 @@ class PomodoroTimer: ObservableObject {
     }
     
     func updateTime(workMinutes: Int, breakMinutes: Int? = nil, longBreakMinutes: Int? = nil) {
+        let previousDuration = schedule.duration(for: currentMode)
         schedule.update(
             workMinutes: workMinutes,
             breakMinutes: breakMinutes,
             longBreakMinutes: longBreakMinutes
         )
         
-        // Update current time if not running and in work mode
-        if !isRunning && currentMode == .work {
-            totalTime = schedule.workDuration
+        let newDuration = schedule.duration(for: currentMode)
+        if !isRunning && !isCompleted && newDuration != previousDuration {
+            totalTime = newDuration
             timeRemaining = totalTime
         }
     }
@@ -298,7 +310,7 @@ class PomodoroTimer: ObservableObject {
     }
 
     private func prepare(mode: TimerMode) {
-        cancelDelayedRestart()
+        pause()
         currentMode = mode
         totalTime = schedule.duration(for: mode)
         timeRemaining = totalTime
@@ -308,6 +320,21 @@ class PomodoroTimer: ObservableObject {
     private func cancelDelayedRestart() {
         delayedRestartTimer?.invalidate()
         delayedRestartTimer = nil
+    }
+
+    var totalDuration: TimeInterval {
+        TimeInterval(totalTime)
+    }
+
+    /// Use the same wall-clock anchor as the countdown for smooth clock hands.
+    func elapsedTime(at date: Date) -> TimeInterval {
+        let remaining: TimeInterval
+        if isRunning, let startDate {
+            remaining = TimeInterval(timeRemainingAtStart) - max(0, date.timeIntervalSince(startDate))
+        } else {
+            remaining = TimeInterval(timeRemaining)
+        }
+        return min(max(totalDuration - remaining, 0), totalDuration)
     }
     
     var formattedTime: String {

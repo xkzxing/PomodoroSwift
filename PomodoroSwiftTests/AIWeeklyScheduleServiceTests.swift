@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class AIWeeklyScheduleServiceTests: XCTestCase {
     private let validJSON = """
-    {"events":[{"title":"  开会  ","weekdays":[1,3,5],"start":"14:10","end":"15:40","color":"teal"}],"needsClarification":[]}
+    {"events":[{"title":"  开会  ","weekdays":[1,3,5],"start":"14:10","end":"15:40","color":"green"}],"needsClarification":[]}
     """
 
     override func tearDown() {
@@ -19,7 +19,7 @@ final class AIWeeklyScheduleServiceTests: XCTestCase {
         XCTAssertEqual(events[0].weekdays, [.monday, .wednesday, .friday])
         XCTAssertEqual(events[0].startMinute, 850)
         XCTAssertEqual(events[0].endMinute, 940)
-        XCTAssertEqual(events[0].color, .teal)
+        XCTAssertEqual(events[0].color, .green)
     }
 
     func testAcceptsFencedJSONAndMidnightEnd() throws {

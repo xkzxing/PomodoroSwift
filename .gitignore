@@ -1,8 +1,7 @@
 .DS_Store
 
-# Release archives are attached to releases instead of committed to source control.
-dist/*.zip
-dist/*.sha256
+# Local release archives are generated artifacts, not source files.
+/dist/
 
 # Xcode
 #
@@ -77,3 +76,9 @@ fastlane/test_output
 # https://github.com/johnno1962/injectionforxcode
 
 iOSInjectionProject/
+
+# Local signing, instructions, and packaging files
+/AGENTS.md
+/Scripts/build-local-release.sh
+/Config/Signing.local.xcconfig
+/Config/Signing.local.sh

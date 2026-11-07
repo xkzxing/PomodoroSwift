@@ -128,6 +128,7 @@ final class WeeklyScheduleTests: XCTestCase {
         store.preferences.startMinute = 0
         store.preferences.endMinute = 1440
         store.preferences.panelWidth = 950
+        store.preferences.minimumFontSize = 9
         let reloaded = WeeklyScheduleStore(defaults: defaults)
         XCTAssertEqual(reloaded.events.count, 1)
         XCTAssertEqual(reloaded.events.first?.title, "修改日程")
@@ -150,6 +151,29 @@ final class WeeklyScheduleTests: XCTestCase {
         XCTAssertEqual(store.events.count, 1)
         XCTAssertEqual(store.preferences.startMinute, 1425)
         XCTAssertEqual(store.preferences.endMinute, 1440)
+        XCTAssertEqual(WeeklyScheduleStore(defaults: defaults).preferences, store.preferences)
+    }
+
+    func testRemovedColorsMigrateWithoutLosingSavedSchedules() throws {
+        let suite = "WeeklyScheduleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let original = event(480, 540, days: [.monday, .friday])
+        let encoded = try JSONEncoder().encode([original])
+        for (legacy, expected) in [("teal", ScheduleColor.blue), ("pink", .red)] {
+            let source = String(decoding: encoded, as: UTF8.self)
+                .replacingOccurrences(of: "\"blue\"", with: "\"\(legacy)\"")
+            defaults.set(Data(source.utf8), forKey: WeeklyScheduleStore.eventsKey)
+            let store = WeeklyScheduleStore(defaults: defaults)
+            XCTAssertNil(store.storageError)
+            var expectedEvent = original
+            expectedEvent.color = expected
+            XCTAssertEqual(store.events, [expectedEvent])
+            XCTAssertTrue(store.save(expectedEvent))
+            let saved = try XCTUnwrap(defaults.data(forKey: WeeklyScheduleStore.eventsKey))
+            XCTAssertFalse(String(decoding: saved, as: UTF8.self).contains(legacy))
+            XCTAssertEqual(WeeklyScheduleStore(defaults: defaults).events, [expectedEvent])
+        }
     }
 
     func testCorruptStoredEventsAreNotOverwritten() throws {

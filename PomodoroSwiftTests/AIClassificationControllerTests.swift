@@ -113,6 +113,36 @@ final class AIClassificationControllerTests: XCTestCase {
         XCTAssertFalse(controller.statusIsError)
     }
 
+    func testCancelledRequestCannotFinishNewRequest() async {
+        let service = ControlledClassificationService()
+        let controller = AIClassificationController(service: service)
+        let panel = AIPanelContext(id: UUID(), title: "Work")
+        controller.inputText = "First"
+        var writes = 0
+        controller.startClassification(apiKey: "key", panels: [panel]) { _ in
+            writes += 1
+            return 1
+        }
+        await service.waitForRequests(1)
+        controller.cancelClassification()
+        controller.inputText = "Second"
+        controller.startClassification(apiKey: "key", panels: [panel]) { _ in
+            writes += 1
+            return 1
+        }
+        await service.waitForRequests(2)
+        await service.complete(0)
+        // Let the old request's cancellation handler run before observing the new one.
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(controller.isClassifying)
+        XCTAssertEqual(writes, 0)
+        controller.cancelClassification()
+        await service.complete(1)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(writes, 0)
+        XCTAssertEqual(controller.statusMessage, "AI classification cancelled.")
+    }
+
     private func waitForControllerToBecomeIdle(
         _ controller: AIClassificationController,
         timeout: TimeInterval = 2.0
@@ -161,5 +191,21 @@ private actor StubClassificationService: AIToDoClassificationService {
 
         let result = results.removeFirst()
         return try result.get()
+    }
+}
+
+private actor ControlledClassificationService: AIToDoClassificationService {
+    private var requests: [CheckedContinuation<[UUID: [String]], Never>] = []
+
+    func classifyTasks(apiKey: String, rawInput: String, panels: [AIPanelContext]) async throws -> [UUID: [String]] {
+        await withCheckedContinuation { requests.append($0) }
+    }
+
+    func waitForRequests(_ count: Int) async {
+        while requests.count < count { await Task.yield() }
+    }
+
+    func complete(_ index: Int) {
+        requests[index].resume(returning: [:])
     }
 }

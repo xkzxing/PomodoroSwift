@@ -3,11 +3,14 @@ import SwiftUI
 struct WeeklySchedulePanel: View {
     @ObservedObject var store: WeeklyScheduleStore
     @EnvironmentObject private var settings: Settings
-    @StateObject private var glass = ToDoGlassSettings(panelId: WeeklyScheduleStore.panelID, migrateLegacy: false)
+    @StateObject private var appearance = PanelAppearanceSettings(
+        panelId: WeeklyScheduleStore.panelID, fallback: .scheduleDefault, migrateLegacy: false
+    )
+    @Environment(\.scenePanelPhase) private var phase
     let containerSize: CGSize
-    let glassEffect: Glass
 
-    @State private var weekOffset = 0
+    @ObservedObject private var calendarStore: ScheduleCalendarStore
+    @State private var showCalendars = false
     @State private var selectedDay = ScheduleWeekday.from(Date())
     @State private var editingEvent: WeeklyScheduleEvent?
     @State private var showLibrary = false
@@ -17,15 +20,20 @@ struct WeeklySchedulePanel: View {
     @GestureState private var dragOffset: CGSize = .zero
     @GestureState private var resizeOffset: CGSize = .zero
 
-    private var textColor: Color {
-        (glass.useCustom ? glass.fontDark : !settings.sidebarDarkMode) ? .black : .white
+    init(store: WeeklyScheduleStore, containerSize: CGSize) {
+        self.store = store
+        self.calendarStore = store.calendarStore
+        self.containerSize = containerSize
     }
+
+    private var palette: ScenePanelPalette { appearance.colors.palette(for: phase) }
+    private var textColor: Color { palette.ink }
     private var basePanelWidth: CGFloat {
-        let desired = glass.panelExpanded ? store.preferences.panelWidth : 360
+        let desired = appearance.panelExpanded ? store.preferences.panelWidth : 360
         return min(max(desired, 360), max(360, containerSize.width - 24))
     }
     private var basePanelHeight: CGFloat {
-        glass.panelExpanded
+        appearance.panelExpanded
             ? min(max(store.preferences.panelHeight, 320), max(320, containerSize.height - 48))
             : 48
     }
@@ -33,7 +41,7 @@ struct WeeklySchedulePanel: View {
         min(max(basePanelWidth + resizeOffset.width, 360), max(360, containerSize.width - basePosition.x - 12))
     }
     private var panelHeight: CGFloat {
-        glass.panelExpanded
+        appearance.panelExpanded
             ? min(max(basePanelHeight + resizeOffset.height, 320), max(320, containerSize.height - basePosition.y - 12))
             : 48
     }
@@ -50,10 +58,9 @@ struct WeeklySchedulePanel: View {
         }
         .frame(width: panelWidth, height: panelHeight)
         .foregroundStyle(textColor)
-        .background(.clear)
-        .glassEffect(glass.useCustom ? glass.buildGlass() : glassEffect, in: RoundedRectangle(cornerRadius: 16))
+        .scenePanelSurface(RoundedRectangle(cornerRadius: 16), palette: palette)
         .overlay(alignment: .bottomTrailing) {
-            if glass.panelExpanded { resizeHandle }
+            if appearance.panelExpanded { resizeHandle }
         }
         .shadow(color: .black.opacity(0.2), radius: 14, x: 0, y: 7)
         .offset(x: basePosition.x + panelWidth / 2 - containerSize.width / 2 + dragOffset.width,
@@ -72,33 +79,34 @@ struct WeeklySchedulePanel: View {
     }
 
     private func dates(now: Date) -> [Date] {
-        let anchor = Calendar.current.date(byAdding: .weekOfYear, value: weekOffset, to: now) ?? now
-        return Array(WeeklyScheduleMath.weekDates(containing: anchor).prefix(store.preferences.includesWeekend ? 7 : 5))
+        WeeklyScheduleMath.visibleDates(now: now, firstDay: store.preferences.firstDay,
+                                        includesWeekend: store.preferences.includesWeekend)
     }
 
     private func panel(now: Date) -> some View {
         let visibleDates = dates(now: now)
         return VStack(spacing: 0) {
             header
-            if glass.panelExpanded {
+            if appearance.panelExpanded {
                 Divider().overlay(textColor.opacity(0.1))
-                navigation(dates: visibleDates)
-                summary(dates: visibleDates, now: now)
                 if let error = store.storageError {
                     Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 14)
                 }
                 WeeklyScheduleGrid(
-                    events: store.events, dates: visibleDates,
+                    events: store.events, calendarEvents: calendarStore.events, dates: visibleDates,
                     startMinute: store.preferences.startMinute, endMinute: store.preferences.endMinute,
+                    minimumFontSize: store.preferences.minimumFontSize,
                     now: now, textColor: textColor, selectedDay: $selectedDay,
                     onEdit: { editingEvent = $0 },
                     onAdd: { addEvent(day: $0, minute: $1) }
                 )
                 .frame(maxHeight: .infinity)
-                freeTimeFooter(dates: visibleDates, now: now)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        // 只在可见日期范围变化时刷新。按时间轴时间刷新会导致日历状态发布、
+        // 界面重绘、时间再次变化，最终形成持续刷新回路。
+        .task(id: visibleDates) { await calendarStore.updateDates(visibleDates) }
     }
 
     private var header: some View {
@@ -127,25 +135,32 @@ struct WeeklySchedulePanel: View {
             iconButton("AI 添加日程", "sparkles") { showAI = true }
                 .accessibilityIdentifier("weeklyAIOpen")
             iconButton("日程列表", "list.bullet") { showLibrary = true }
+            iconButton("日历来源", "calendar.badge.clock") { showCalendars = true }
+                .accessibilityIdentifier("weeklyCalendarSources")
+                .popover(isPresented: $showCalendars, arrowEdge: .top) {
+                    ScheduleCalendarSettings(calendarStore: calendarStore)
+                        .padding(18).frame(width: 350)
+                }
             iconButton("显示设置", "slider.horizontal.3") { showDisplaySettings.toggle() }
-                .popover(isPresented: $showDisplaySettings) {
+                .popover(isPresented: $showDisplaySettings, arrowEdge: .top) {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("周日程显示设置").font(.headline)
                         WeeklyScheduleDisplayControls(store: store)
                     }
                     .padding(18).frame(width: 300)
                 }
-            iconButton("玻璃效果", "paintpalette") { showGlassSettings.toggle() }
-                .popover(isPresented: $showGlassSettings) {
-                    ToDoGlassPopover(glassSettings: glass)
+            iconButton("周日程配色", "paintpalette") { showGlassSettings.toggle() }
+                .popover(isPresented: $showGlassSettings, arrowEdge: .top) {
+                    ScenePanelColorControls(colors: $appearance.colors)
+                        .padding(14)
                 }
-            iconButton(glass.panelExpanded ? "折叠周日程" : "展开周日程",
-                       glass.panelExpanded ? "chevron.up" : "chevron.down") {
+            iconButton(appearance.panelExpanded ? "折叠周日程" : "展开周日程",
+                       appearance.panelExpanded ? "chevron.up" : "chevron.down") {
                 let position = basePosition
                 store.preferences.panelX = position.x
                 store.preferences.panelY = position.y
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    glass.panelExpanded.toggle()
+                    appearance.panelExpanded.toggle()
                 }
             }
             .accessibilityIdentifier("toggleWeeklySchedule")
@@ -162,93 +177,6 @@ struct WeeklySchedulePanel: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).help(title).accessibilityLabel(title)
-    }
-
-    private func navigation(dates: [Date]) -> some View {
-        HStack(spacing: 8) {
-            if let first = dates.first, let last = dates.last {
-                Text("\(first.formatted(.dateTime.year().month().day().locale(Locale(identifier: "zh_CN")))) — \(last.formatted(.dateTime.month().day().locale(Locale(identifier: "zh_CN"))))")
-                    .font(.system(size: 12, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-            }
-            Spacer(minLength: 2)
-            iconButton("上一周", "chevron.left") { weekOffset -= 1 }
-            Button("本周") { weekOffset = 0 }.buttonStyle(.plain).font(.system(size: 12))
-            iconButton("下一周", "chevron.right") { weekOffset += 1 }
-        }
-        .padding(.horizontal, 14).padding(.top, 8)
-    }
-
-    private func ranges(for date: Date, now: Date, remaining: Bool) -> [ScheduleMinuteRange] {
-        if remaining {
-            return WeeklyScheduleMath.remainingFreeRanges(
-                events: store.events, date: date, start: store.preferences.startMinute,
-                end: store.preferences.endMinute, now: now
-            )
-        }
-        return WeeklyScheduleMath.freeRanges(
-            events: store.events, weekday: .from(date), start: store.preferences.startMinute, end: store.preferences.endMinute
-        )
-    }
-
-    private func summary(dates: [Date], now: Date) -> some View {
-        let todayVisible = store.preferences.weekdays.contains(.from(now))
-        let todayFree = todayVisible ? ranges(for: now, now: now, remaining: true).reduce(0) { $0 + $1.duration } : 0
-        let total = dates.flatMap { ranges(for: $0, now: now, remaining: false) }.reduce(0) { $0 + $1.duration }
-        let remaining = dates.flatMap { ranges(for: $0, now: now, remaining: true) }.reduce(0) { $0 + $1.duration }
-        return HStack(spacing: 8) {
-            stat("今日剩余", value: todayVisible ? WeeklyScheduleMath.durationLabel(todayFree) : "未显示周末")
-            stat(weekOffset == 0 ? "本周剩余" : "所选周剩余", value: WeeklyScheduleMath.durationLabel(remaining))
-            stat("整周空闲", value: WeeklyScheduleMath.durationLabel(total))
-        }
-        .padding(.horizontal, 14).padding(.vertical, 9)
-    }
-
-    private func stat(_ title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 10)).foregroundStyle(textColor.opacity(0.6))
-            Text(value).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(textColor.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func freeTimeFooter(dates: [Date], now: Date) -> some View {
-        let date = dates.first { ScheduleWeekday.from($0) == selectedDay } ?? dates.first ?? now
-        let remaining = ranges(for: date, now: now, remaining: true)
-        let longest = remaining.map(\.duration).max() ?? 0
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Circle().fill(.teal).frame(width: 5, height: 5)
-                Text("\(ScheduleWeekday.from(date).title)剩余空闲")
-                    .fontWeight(.medium)
-                Spacer()
-                if longest > 0 { Text("最长 \(WeeklyScheduleMath.durationLabel(longest))") }
-            }
-            .font(.system(size: 10))
-            ScrollView(.horizontal) {
-                HStack(spacing: 6) {
-                    if remaining.isEmpty {
-                        Text(Calendar.current.startOfDay(for: date) < Calendar.current.startOfDay(for: now)
-                             ? "该日期已结束" : "显示范围内没有剩余空闲")
-                            .foregroundStyle(textColor.opacity(0.6))
-                    }
-                    ForEach(remaining) { range in
-                        Text(range.label)
-                            .monospacedDigit()
-                            .padding(.horizontal, 7).padding(.vertical, 4)
-                            .background(Color.teal.opacity(0.12), in: Capsule())
-                    }
-                }
-                .font(.system(size: 10))
-            }
-            .scrollIndicators(.hidden)
-            Text(store.events.isEmpty ? "点击＋添加每周日程，或双击时间网格；青色边线表示空闲。" :
-                    "青色边线表示空闲；双击空白添加，点击日程编辑。统计仅含显示范围。")
-                .font(.system(size: 9)).foregroundStyle(textColor.opacity(0.5)).lineLimit(1)
-        }
-        .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 12)
-        .overlay(alignment: .top) { Divider().overlay(textColor.opacity(0.1)) }
     }
 
     private func addEvent(day: ScheduleWeekday, minute: Int) {
