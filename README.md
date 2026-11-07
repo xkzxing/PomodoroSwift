@@ -2,6 +2,8 @@
 
 一款基于 SwiftUI 构建的如原生般优美 macOS 番茄钟应用。它拥有现代化的美学界面，具备玻璃拟态效果和高度的自定义能力。
 
+当前电脑版需要搭载苹果芯片的 Mac 和 macOS 26.2 或更新版本。
+
 ## 功能特性
 
 - **计时与专注流程**:
@@ -52,7 +54,29 @@
   - 支持自定义背景图片与系统字体。
   - 按钮与面板拥有悬停、按压、展开等流畅动画反馈。
 
-<img width="3024" height="1898" alt="4b886d1ef1b73a4a0b13356b63aa6e83" src="https://github.com/user-attachments/assets/4cc249b8-f960-4a76-b495-7a1f11448a52" />
+## 界面演示
+
+演示中的待办和日程均为虚构内容。
+
+### 晴日山湖与亮色界面
+
+![晴日山湖背景上的亮色界面、瑞士表盘和今日待办](docs/screenshots/alpine-light.webp)
+
+山湖背景为生成图像。
+
+### 湖岸黄昏与「今日」待办
+
+![湖岸黄昏背景上的鎏金彩晶表盘、今日待办和周日程](docs/screenshots/lakeside-gemstone.webp)
+
+### 海岸照片与暗色界面
+
+![海岸照片背景上的瑞士表盘与外观设置侧栏](docs/screenshots/coast-appearance.webp)
+
+海岸照片由 Alessandro Guarino 拍摄。[素材来源与许可](Design/GemstoneDial/Photos/来源.md)
+
+### 雾面光场与周日程
+
+![雾面光场背景上的数字倒计时，周三的重叠日程并排显示](docs/screenshots/mist-weekly-schedule.webp)
 
 ## 项目结构
 
